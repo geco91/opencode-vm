@@ -37,6 +37,23 @@ boundary remains guest/host credential and origin separation. See
 - macOS (Apple Silicon recommended)
 - [Homebrew](https://brew.sh)
 
+Debian host support and OpenCode V2 migration are being developed on
+`feat/debian-opencode-v2`. See [the combined plan and verified status](docs/DEBIAN-OPENCODE-V2.md).
+The product backend on this branch is still V1 until the API/plugin port passes.
+The Debian candidate selects Lima/QEMU with KVM and 9p; a usable `/dev/kvm` is
+required. macOS continues to use Lima/vz with virtiofs.
+
+On Debian install the official [Lima Linux release](https://lima-vm.io/docs/installation/)
+and host dependencies before running `init`:
+
+```bash
+sudo apt-get install qemu-system qemu-utils curl jq rsync python3 openssh-client sqlite3 libdigest-sha-perl iproute2
+```
+
+Grant the Lima user KVM access using the host's normal group/permissions setup.
+When Debian itself is a VM, enable nested virtualization in its hypervisor.
+The cloud checks do not establish a working Lima/KVM installation.
+
 ## Quick Start
 
 1) Install opencode-vm (installs Lima automatically if Homebrew is available):

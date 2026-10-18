@@ -6,6 +6,21 @@ _T0=$(date +%s)
 _ts() { echo "+$(($(date +%s) - _T0))s"; }
 
 BASE_NAME="oc-base"
+SHARE_ROOT="$HOME/.opencode-vm"
+OCVM_LIMA_HOME="${LIMA_HOME:-$HOME/.lima}"
+
+# The first migration stage deliberately keeps the V1 backend while proving
+# path isolation. This flag selects the experiment's state, not a V2 binary.
+case "${OCVM_EXPERIMENT:-}" in
+  "") ;;
+  v2)
+    SHARE_ROOT="$HOME/.opencode-vm-v2"
+    BASE_NAME="oc-base-v2"
+    OCVM_LIMA_HOME="$SHARE_ROOT/lima"
+    export LIMA_HOME="$OCVM_LIMA_HOME"
+    ;;
+  *) echo "Unknown OCVM_EXPERIMENT; supported value: v2" >&2; exit 2 ;;
+esac
 
 # Host config: OpenCode empfiehlt ~/.config/opencode/opencode.json
 HOST_CFG_DIR="$HOME/.config/opencode"
@@ -14,9 +29,16 @@ HOST_CFG_JSONC="$HOST_CFG_DIR/opencode.jsonc"
 HOST_CFG_DOT_JSON="$HOST_CFG_DIR/.opencode.json"
 HOST_DATA_DIR="$HOME/.local/share/opencode"
 HOST_STATE_DIR="$HOME/.local/state/opencode"
+if [[ "${OCVM_EXPERIMENT:-}" == v2 ]]; then
+  HOST_CFG_DIR="$SHARE_ROOT/global/config/opencode"
+  HOST_CFG_JSON="$HOST_CFG_DIR/opencode.json"
+  HOST_CFG_JSONC="$HOST_CFG_DIR/opencode.jsonc"
+  HOST_CFG_DOT_JSON="$HOST_CFG_DIR/.opencode.json"
+  HOST_DATA_DIR="$SHARE_ROOT/global/data/opencode"
+  HOST_STATE_DIR="$SHARE_ROOT/global/state/opencode"
+fi
 
 # Share root and session tracking
-SHARE_ROOT="$HOME/.opencode-vm"
 BACKUP_DIR="$SHARE_ROOT/backups"
 SESSIONS_DIR="$SHARE_ROOT/sessions"
 PROJECT_STATE_DIR="$SHARE_ROOT/project-state"
@@ -377,7 +399,7 @@ TASKBOARD_ARM64_SHA256="3749fb985f544fdb6788ba1dff69761e599ff82b3fe86d39ca54307c
 
 # Self-update metadata
 SCRIPT_NAME="opencode-vm.sh"
-OCVM_VERSION="0.7.70"
+OCVM_VERSION="0.7.71"
 OCVM_UPDATE_REPO="GeektankLabs/opencode-vm"
 OCVM_UPDATE_BRANCH="main"
 OCVM_UPDATE_SCRIPT_PATH="opencode-vm.sh"
@@ -1256,8 +1278,8 @@ vm_exec() {
 sanitize_lima_sock_dir() {
   # Lima can leave ~/.lima/sock/ behind without lima.yaml.
   # limactl may then treat it as a broken instance and fail fatally.
-  if [[ -d "$HOME/.lima/sock" ]] && [[ ! -f "$HOME/.lima/sock/lima.yaml" ]]; then
-    rm -rf "$HOME/.lima/sock" 2>/dev/null || true
+  if [[ -d "$OCVM_LIMA_HOME/sock" ]] && [[ ! -f "$OCVM_LIMA_HOME/sock/lima.yaml" ]]; then
+    rm -rf "$OCVM_LIMA_HOME/sock" 2>/dev/null || true
   fi
 }
 
@@ -1615,6 +1637,11 @@ session_journal_effective() {
 
 get_host_ip() {
   local ip
+  if [[ "$(uname -s)" == Linux ]]; then
+    ip="$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<NF;i++) if($i=="src") {print $(i+1); exit}}')"
+    echo "${ip:-localhost}"
+    return 0
+  fi
   ip="$(ipconfig getifaddr en0 2>/dev/null || true)"
   if [[ -z "$ip" ]]; then
     ip="$(ipconfig getifaddr en1 2>/dev/null || true)"
@@ -1630,7 +1657,65 @@ ensure_dirs() {
 }
 
 proj_hash() {
-  echo -n "$1" | md5 -q
+  printf '%s' "$1" | ocvm_md5
+}
+
+# Keep project identities byte-identical on BSD and GNU hosts.
+ocvm_md5() {
+  if (( $# )); then
+    # Hash bytes through stdin so GNU filename escaping cannot prefix the
+    # digest when a legitimate filename contains a backslash or newline.
+    [[ $# -eq 1 ]] || return 2
+    ocvm_md5 < "$1"
+    return
+  fi
+  if command -v md5sum >/dev/null 2>&1; then
+    md5sum | awk '{print $1}'
+  else
+    md5 -q
+  fi
+}
+
+ocvm_file_mtime() {
+  if [[ "$(uname -s)" == Darwin ]]; then
+    stat -f %m "$1"
+  else
+    stat -c %Y "$1"
+  fi
+}
+
+# Insert YAML rules without BSD/GNU sed -i differences. Replace the file
+# atomically in its own directory and retain its permissions.
+ocvm_lima_add_port_forward() {
+  local file="$1" rules="$2"
+  python3 - "$file" "$rules" <<'PY'
+import os
+import stat
+import sys
+import tempfile
+from pathlib import Path
+
+path = Path(sys.argv[1])
+if path.is_symlink() or not path.is_file():
+    raise SystemExit("[lima] Expected a regular, non-symlink configuration file")
+text = path.read_text()
+lines = text.splitlines(keepends=True)
+for index, line in enumerate(lines):
+    if line.rstrip("\r\n") == "portForwards:":
+        lines.insert(index + 1, sys.argv[2].rstrip("\n") + "\n")
+        break
+else:
+    raise SystemExit("[lima] Missing portForwards section; configuration left unchanged")
+fd, name = tempfile.mkstemp(prefix=".ocvm-forward-", dir=path.parent)
+try:
+    os.fchmod(fd, stat.S_IMODE(path.stat().st_mode))
+    with os.fdopen(fd, "w") as output:
+        output.write("".join(lines))
+    os.replace(name, path)
+finally:
+    if os.path.exists(name):
+        os.unlink(name)
+PY
 }
 
 session_env() {
@@ -1746,10 +1831,13 @@ vscode_trust_reset_exemption() {
 }
 
 # Prints: status<TAB>detail
-# Supported state is the standard macOS VS Code Stable user-data directory.
+# Supported state is the standard macOS/Linux VS Code Stable user-data directory.
 vscode_trust_detect() {
   local proj="$1" code_user db settings
   code_user="$HOME/Library/Application Support/Code/User"
+  if [[ "$(uname -s)" == Linux ]]; then
+    code_user="${XDG_CONFIG_HOME:-$HOME/.config}/Code/User"
+  fi
   db="$code_user/globalStorage/state.vscdb"
   settings="$code_user/settings.json"
 
@@ -1917,7 +2005,7 @@ vscode_trust_print_protection_help() {
   fi
   echo "[vscode]"
   echo "[vscode] If Restricted Mode prevents opening VS Code's integrated terminal, use"
-  echo "[vscode] macOS Terminal for this command."
+  echo "[vscode] host terminal for this command."
   echo "[vscode]"
   echo "[vscode] After completing these steps, rerun your OpenCode VM command from this"
   echo "[vscode] project directory. The trust check will run again."
@@ -2125,11 +2213,20 @@ sync_cfg_between_host_and_project() {
 
   mkdir -p "$(dirname "$proj_cfg")"
 
+  # Seed once from the experiment's own global config. Later project changes
+  # stay project-local until V2 global sharing has been separately validated.
+  if [[ "${OCVM_EXPERIMENT:-}" == v2 ]]; then
+    if [[ ! -f "$proj_cfg" && -f "$host_cfg" ]]; then
+      cp -p "$host_cfg" "$proj_cfg"
+    fi
+    return 0
+  fi
+
   if [[ -f "$proj_cfg" ]] && [[ -f "$host_cfg" ]]; then
     if ! cmp -s "$proj_cfg" "$host_cfg"; then
       local host_mtime proj_mtime newer older
-      host_mtime="$(stat -f %m "$host_cfg" 2>/dev/null || echo 0)"
-      proj_mtime="$(stat -f %m "$proj_cfg" 2>/dev/null || echo 0)"
+      host_mtime="$(ocvm_file_mtime "$host_cfg" 2>/dev/null || echo 0)"
+      proj_mtime="$(ocvm_file_mtime "$proj_cfg" 2>/dev/null || echo 0)"
       # The newer file wins on scalar/conflicting keys.
       if (( host_mtime >= proj_mtime )); then
         newer="$host_cfg"; older="$proj_cfg"
@@ -2880,7 +2977,7 @@ proxmox_mcp_clone_or_update() {
 # per-instance ssh.config, which persists for stopped instances too.
 lima_guest_user() {
   local vm="$1" u
-  u="$(awk '$1 == "User" {print $2; exit}' "$HOME/.lima/$vm/ssh.config" 2>/dev/null)"
+  u="$(awk '$1 == "User" {print $2; exit}' "$OCVM_LIMA_HOME/$vm/ssh.config" 2>/dev/null)"
   [[ -n "$u" ]] || u="$(limactl show-ssh --format=config "$vm" 2>/dev/null | awk '$1 == "User" {print $2; exit}')"
   printf '%s' "$u"
 }
@@ -3003,7 +3100,7 @@ searxng_ensure_installed_in_base() {
   # Old stamps don't match → existing installs auto-re-render config on next run.
   local install_stamp_version="2"
   local stamp_path="$SEARXNG_VM_DIR/.installed-v$install_stamp_version"
-  local lima_yaml="$HOME/.lima/$BASE_NAME/lima.yaml"
+  local lima_yaml="$OCVM_LIMA_HOME/$BASE_NAME/lima.yaml"
   local cfg_src="$SCRIPT_DIR/mcps/searxng"
 
   if [[ ! -d "$cfg_src" ]]; then
@@ -3018,12 +3115,10 @@ searxng_ensure_installed_in_base() {
   local need_lima_restart=0
   if [[ -f "$lima_yaml" ]] && ! grep -q 'guestPort: 8888' "$lima_yaml" 2>/dev/null; then
     echo "[searxng] Adding lima.yaml portForward rule for 127.0.0.1:$SEARXNG_PORT..."
-    sed -i '' '/^portForwards:/a\
-- guestIP: "127.0.0.1"\
-  guestPort: 8888\
-  hostIP: "127.0.0.1"\
-  hostPort: 8888
-' "$lima_yaml"
+    ocvm_lima_add_port_forward "$lima_yaml" '- guestIP: "127.0.0.1"
+  guestPort: 8888
+  hostIP: "127.0.0.1"
+  hostPort: 8888' || return 1
     need_lima_restart=1
   fi
 
@@ -5496,6 +5591,7 @@ ocvm_check_remote_version() {
 }
 
 ocvm_notify_if_new_version_available() {
+  [[ "${OCVM_EXPERIMENT:-}" != v2 ]] || return 0
   local current_cmd="$1"
 
   case "$current_cmd" in
@@ -5535,7 +5631,11 @@ ocvm_notify_if_new_version_available() {
 # disables the upper bound rather than blocking the user).
 _host_mem_gib() {
   local bytes
-  bytes="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  if [[ "$(uname -s)" == Linux ]]; then
+    bytes="$(awk '/^MemTotal:/ {printf "%.0f", $2 * 1024}' /proc/meminfo 2>/dev/null || echo 0)"
+  else
+    bytes="$(sysctl -n hw.memsize 2>/dev/null || echo 0)"
+  fi
   [[ "$bytes" =~ ^[0-9]+$ ]] || bytes=0
   echo $(( bytes / 1024 / 1024 / 1024 ))
 }
@@ -5543,7 +5643,11 @@ _host_mem_gib() {
 # Logical CPUs of the host (0 when it can't be determined).
 _host_cpus() {
   local n
-  n="$(sysctl -n hw.ncpu 2>/dev/null || echo 0)"
+  if [[ "$(uname -s)" == Linux ]]; then
+    n="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 0)"
+  else
+    n="$(sysctl -n hw.ncpu 2>/dev/null || echo 0)"
+  fi
   [[ "$n" =~ ^[0-9]+$ ]] || n=0
   echo "$n"
 }
@@ -5816,7 +5920,7 @@ _vmcfg_resource_cmd() {
       fi
       # Not an error — the host still has to run macOS — but worth flagging.
       if [[ "$res" != disk ]] && (( host > 0 && sub * 4 > host * 3 )); then
-        echo "[$cmd] NOTE: ${sub} ${unit} is over 75% of the host's ${host} ${unit} — leave room for macOS." >&2
+        echo "[$cmd] NOTE: ${sub} ${unit} is over 75% of the host's ${host} ${unit} — leave room for the host OS." >&2
       fi
       vmcfg_load "$proj"
       if [[ "$res" == disk ]]; then
@@ -9332,6 +9436,10 @@ ocvm_post_update_migrate() {
 }
 
 update_cmd() {
+  if [[ "${OCVM_EXPERIMENT:-}" == v2 ]]; then
+    echo "[experiment] Run the branch script directly; install/update would replace the stable launcher." >&2
+    return 1
+  fi
   [[ "$#" -eq 0 ]] || { echo "Usage: opencode-vm update" >&2; exit 2; }
 
   local remote_tmp_file remote_version current_version script_path
@@ -9418,7 +9526,7 @@ update_cmd() {
       limactl delete -f "$BASE_NAME" 2>/dev/null || true
     fi
   fi
-  rm -rf "$HOME/.lima/sock" 2>/dev/null || true
+  rm -rf "$OCVM_LIMA_HOME/sock" 2>/dev/null || true
   provision_base
   echo
   echo "Next: navigate to your project directory (open terminal in VS Code) and run:"
@@ -9441,6 +9549,10 @@ update_cmd() {
 }
 
 install_cmd() {
+  if [[ "${OCVM_EXPERIMENT:-}" == v2 ]]; then
+    echo "[experiment] Run the branch script directly; install/update would replace the stable launcher." >&2
+    return 1
+  fi
   local source_path target_dir target_path shell_name shell_rc staged asset
 
   target_dir="$HOME/bin"
@@ -9515,15 +9627,24 @@ install_cmd() {
     fi
   fi
 
-  # Install Lima via Homebrew if not already present
+  # Homebrew remains the macOS installation path. Debian users install the
+  # official Lima binary separately; never run an implicit privileged apt job.
   if command -v limactl &>/dev/null; then
     echo "[install] Lima is already installed."
-  elif command -v brew &>/dev/null; then
+  elif [[ "$(uname -s)" == Darwin ]] && command -v brew &>/dev/null; then
     echo "[install] Installing Lima via Homebrew..."
     brew install lima
     echo "[install] Lima installed."
   else
-    echo "[install] Homebrew not found. Please install Lima manually: brew install lima"
+    case "$(uname -s)" in
+      Darwin) echo "[install] Install Lima with Homebrew: brew install lima" ;;
+      Linux)
+        echo "[install] Install Lima's official Linux release: https://lima-vm.io/docs/installation/"
+        echo "[install] Debian host packages: qemu-system qemu-utils curl jq rsync python3 openssh-client sqlite3 libdigest-sha-perl iproute2"
+        echo "[install] Your user needs read/write access to /dev/kvm (typically membership of the kvm group)."
+        ;;
+      *) echo "[install] Unsupported host OS: $(uname -s)" >&2; return 1 ;;
+    esac
   fi
 
   # Print success and next steps
@@ -9537,7 +9658,11 @@ install_cmd() {
     step=$((step + 1))
   fi
   if ! command -v limactl &>/dev/null; then
-    echo "  $step. Install Lima:       brew install lima"
+    if [[ "$(uname -s)" == Darwin ]]; then
+      echo "  $step. Install Lima:       brew install lima"
+    else
+      echo "  $step. Install Lima:       https://lima-vm.io/docs/installation/"
+    fi
     step=$((step + 1))
   fi
   echo "  $step. Init base VM:       opencode-vm init"
@@ -11282,6 +11407,14 @@ openlive_acp_cmd() {
 openlive_cmd() {
   local op="${1:-install}"
   shift || true
+  if [[ "${OCVM_EXPERIMENT:-}" == v2 ]]; then
+    case "$op" in
+      install|remote|prepare|uninstall)
+        echo "[experiment] OpenLive host setup is disabled here; keep the stable host integration unchanged." >&2
+        return 1
+        ;;
+    esac
+  fi
   case "$op" in
     install) openlive_install_cmd "$@" ;;
     remote) openlive_remote_cmd "$@" ;;
@@ -11468,8 +11601,33 @@ base_exists() {
   limactl list -q 2>/dev/null | grep -qx "$BASE_NAME"
 }
 
+ocvm_validate_vm_host() {
+  case "$(uname -s)" in
+    Darwin) ;;
+    Linux)
+      if [[ ! -c /dev/kvm || ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+        echo "[init] Debian/Linux requires usable /dev/kvm; software emulation is not a supported setup." >&2
+        echo "[init] Enable nested virtualization on the hypervisor and grant this user KVM access." >&2
+        return 1
+      fi
+      ;;
+    *) echo "[init] Unsupported host OS: $(uname -s)" >&2; return 1 ;;
+  esac
+}
+
 provision_base() {
+  ocvm_validate_vm_host || return 1
   sanitize_lima_sock_dir
+
+  local vm_type mount_type
+  case "$(uname -s)" in
+    Darwin) vm_type=vz; mount_type=virtiofs ;;
+    Linux)
+      vm_type=qemu; mount_type=9p
+      ;;
+    *) echo "[init] Unsupported host OS: $(uname -s)" >&2; return 1 ;;
+  esac
+  need python3
 
   echo "[init] Creating base VM: $BASE_NAME"
 
@@ -11482,7 +11640,7 @@ provision_base() {
   tmpl_file="${tmpl_file}.yaml"
   limactl tmpl yq 'template:docker-rootful' 'del(.probes) | del(.param)' > "$tmpl_file"
 
-  limactl start --cpus "$DEFAULT_VM_CPUS" --memory "$DEFAULT_VM_MEMORY_GIB" --name "$BASE_NAME" --vm-type vz --mount-none --mount-type virtiofs --timeout 20m --tty=false "$tmpl_file" || {
+  limactl start --cpus "$DEFAULT_VM_CPUS" --memory "$DEFAULT_VM_MEMORY_GIB" --name "$BASE_NAME" --vm-type "$vm_type" --mount-none --mount-type "$mount_type" --timeout 20m --tty=false "$tmpl_file" || {
     if limactl list -q 2>/dev/null | grep -qx "$BASE_NAME"; then
       echo "[init] Lima start returned non-zero, but VM is running — continuing..."
     else
@@ -11532,16 +11690,14 @@ provision_base() {
   echo "[init] Docker ready"
 
   # Expose auto-forwarded ports on all interfaces (LAN access for web mode)
-  local lima_yaml="$HOME/.lima/$BASE_NAME/lima.yaml"
+  local lima_yaml="$OCVM_LIMA_HOME/$BASE_NAME/lima.yaml"
   if ! grep -q 'guestIPMustBeZero: true' "$lima_yaml" 2>/dev/null; then
     echo "[init] Configuring LAN port forwarding..."
-    rm -rf "$HOME/.lima/sock" 2>/dev/null || true
+    rm -rf "$OCVM_LIMA_HOME/sock" 2>/dev/null || true
     limactl stop "$BASE_NAME" 2>/dev/null || true
     # Insert catch-all rule: forward guest 0.0.0.0 ports to host 0.0.0.0
-    sed -i '' '/^portForwards:/a\
-- guestIPMustBeZero: true\
-  hostIP: 0.0.0.0
-' "$lima_yaml"
+    ocvm_lima_add_port_forward "$lima_yaml" '- guestIPMustBeZero: true
+  hostIP: 0.0.0.0' || return 1
     limactl start "$BASE_NAME" --tty=false
     echo "[init] LAN port forwarding configured"
   fi
@@ -12657,7 +12813,7 @@ start_web_tunnels() {
   # problem was SSH itself.
   local ssh_err
   if ! ssh_err="$(ssh -F /dev/null \
-        -o IdentityFile="$HOME/.lima/_config/user" \
+        -o IdentityFile="$OCVM_LIMA_HOME/_config/user" \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o NoHostAuthenticationForLocalhost=yes \
@@ -12713,7 +12869,7 @@ start_web_tunnels() {
       forwards+=( -L "0.0.0.0:${p}:127.0.0.1:${p}" )
     done
     if ssh -f -N -F /dev/null \
-        -o IdentityFile="$HOME/.lima/_config/user" \
+        -o IdentityFile="$OCVM_LIMA_HOME/_config/user" \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o NoHostAuthenticationForLocalhost=yes \
@@ -12946,7 +13102,7 @@ esac
 hn="$(hostname 2>/dev/null || cat /proc/sys/kernel/hostname 2>/dev/null || printf 'unknown')"
 mounts="${OCVM_DOCTOR_MOUNTS_FILE:-/proc/mounts}"
 candidates="$(awk '$3 == "virtiofs" || $3 == "9p" { print $2 }' "$mounts" 2>/dev/null |
-  grep -E '/\.opencode-vm/sessions/[0-9a-fA-F]{32}$' | sort -u)" || candidates=""
+  grep -E '/\.opencode-vm(-v2)?/sessions/[0-9a-fA-F]{32}$' | sort -u)" || candidates=""
 count=0
 if [ -n "$candidates" ]; then count="$(printf '%s\n' "$candidates" | grep -c .)"; fi
 if [ "$count" -eq 1 ] && [ -f "$candidates/lib/doctor.sh" ]; then
@@ -16984,12 +17140,12 @@ doctor_resolve_identity() {
   local expected="${1:-}"
   DOCTOR_VM="$(_doctor_hostname)"
   case "$DOCTOR_VM" in
-    oc-base|lima-oc-base) DOCTOR_CTX="base" ;;
+    oc-base|lima-oc-base|oc-base-v2|lima-oc-base-v2) DOCTOR_CTX="base" ;;
     oc-*|lima-oc-*) DOCTOR_CTX="session" ;;
     *) DOCTOR_CTX="foreign" ;;
   esac
   DOCTOR_CANDIDATES="$(_doctor_mounts | awk '$3 == "virtiofs" || $3 == "9p" { print $2 }' |
-    grep -E '/\.opencode-vm/sessions/[0-9a-fA-F]{32}$' | sed -e 's/\\040/ /g' -e 's/\\011/\t/g' | sort -u || true)"
+    grep -E '/\.opencode-vm(-v2)?/sessions/[0-9a-fA-F]{32}$' | sed -e 's/\\040/ /g' -e 's/\\011/\t/g' | sort -u || true)"
   local count=0
   if [ -n "$DOCTOR_CANDIDATES" ]; then count="$(printf '%s\n' "$DOCTOR_CANDIDATES" | grep -c .)"; fi
   if [ "$count" -gt 1 ]; then
@@ -20070,7 +20226,7 @@ _destroy_prev_session() {
       local _host_cfg _publish_host=0
       local _old_pmerge="$old_cfg.proj" _old_hmerge="$old_cfg.host"
       _host_cfg="$(pick_host_cfg)"
-      if [[ ! -f "$_host_cfg" ]] || [[ "$old_cfg" -nt "$_host_cfg" ]]; then
+      if [[ "${OCVM_EXPERIMENT:-}" != v2 ]] && { [[ ! -f "$_host_cfg" ]] || [[ "$old_cfg" -nt "$_host_cfg" ]]; }; then
         _publish_host=1
       fi
       # Prepare both candidates before publishing: a raw host copy would look
@@ -20740,7 +20896,11 @@ start_session() {
   # Keep host and project preferences in sync before each session.
   # This also bootstraps first-run setups where local OpenCode was never installed.
   sync_cfg_between_host_and_project "$host_cfg" "$proj_cfg"
-  echo "[run] Synced host ↔ project config $(_ts)"
+  if [[ "${OCVM_EXPERIMENT:-}" == v2 ]]; then
+    echo "[run] V2 experiment: isolated config, global sync disabled; backend remains V1."
+  else
+    echo "[run] Synced host ↔ project config $(_ts)"
+  fi
 
   # History handling: default is fresh (empty session list); --keep-history
   # loads the project-specific history from $PROJECT_HISTORY_DIR. The global
@@ -20965,7 +21125,7 @@ start_session() {
   check_and_backup_sqlite_dbs "$sess_share/xdg-state/opencode" "$db_backup_dir/xdg-state"
   echo "[run] SQLite integrity checks + backups done $(_ts)"
 
-  cfg_hash="$(md5 -q "$host_cfg")"
+  cfg_hash="$(ocvm_md5 "$host_cfg")"
 
   # Clone base (with lock to support parallel session starts)
   local lockfile="$SHARE_ROOT/clone.lock"
@@ -21002,7 +21162,7 @@ start_session() {
   # Lima's docker-rootful template creates a shared socket dir at ~/.lima/sock/
   # which Lima may misinterpret as a VM instance, causing fatal errors during
   # list/stop. Remove it before any status check to avoid spurious failures.
-  rm -rf "$HOME/.lima/sock" 2>/dev/null || true
+  rm -rf "$OCVM_LIMA_HOME/sock" 2>/dev/null || true
 
   # Install ProxmoxMCP into base VM (idempotent, only when proxmox skill is active).
   # Must run with base VM available — slot in BEFORE the stop-for-clone step.
@@ -21045,13 +21205,11 @@ start_session() {
   # condition ('hostIP:' instead of 'guestIPMustBeZero: true'), causing the
   # catch-all rule to never be inserted because Docker's socket rule already
   # contains 'hostIP: 127.0.0.1'.
-  local base_lima_yaml="$HOME/.lima/$BASE_NAME/lima.yaml"
+  local base_lima_yaml="$OCVM_LIMA_HOME/$BASE_NAME/lima.yaml"
   if ! grep -q 'guestIPMustBeZero: true' "$base_lima_yaml" 2>/dev/null; then
     echo "[run] Upgrading base VM: adding LAN port forwarding rule... $(_ts)"
-    sed -i '' '/^portForwards:/a\
-- guestIPMustBeZero: true\
-  hostIP: 0.0.0.0
-' "$base_lima_yaml"
+    ocvm_lima_add_port_forward "$base_lima_yaml" '- guestIPMustBeZero: true
+  hostIP: 0.0.0.0' || return 1
     echo "[run] LAN port forwarding rule added to base VM $(_ts)"
   fi
 
@@ -21151,8 +21309,8 @@ start_session() {
       sess_cfg="$sess_cfg_dot"
     elif [[ -f "$sess_cfg_dot" ]] && [[ -f "$sess_cfg_json" ]] && ! cmp -s "$sess_cfg_json" "$sess_cfg_dot"; then
       local sess_json_mtime sess_dot_mtime
-      sess_json_mtime="$(stat -f %m "$sess_cfg_json" 2>/dev/null || echo 0)"
-      sess_dot_mtime="$(stat -f %m "$sess_cfg_dot" 2>/dev/null || echo 0)"
+      sess_json_mtime="$(ocvm_file_mtime "$sess_cfg_json" 2>/dev/null || echo 0)"
+      sess_dot_mtime="$(ocvm_file_mtime "$sess_cfg_dot" 2>/dev/null || echo 0)"
       if (( sess_dot_mtime > sess_json_mtime )); then
         sess_cfg="$sess_cfg_dot"
       fi
@@ -21190,8 +21348,10 @@ start_session() {
       rm -f "$_pmerge"
 
       local current_hash
-      current_hash="$(md5 -q "$dst")"
-      if [[ "$current_hash" != "$cfg_hash" ]]; then
+      current_hash="$(ocvm_md5 "$dst")"
+      if [[ "${OCVM_EXPERIMENT:-}" == v2 ]]; then
+        echo "[cleanup] V2 experiment global config sync is disabled; project config preserved."
+      elif [[ "$current_hash" != "$cfg_hash" ]]; then
         echo ""
         echo "Another session has edited the OpenCode config since this session started."
         read -r -p "Overwrite with this session's config? [y/N] " answer </dev/tty || answer="n"
@@ -22093,6 +22253,8 @@ case "$cmd" in
 
   init)
     need limactl
+    # Validate before deleting/rebuilding an existing base or finalizing sessions.
+    ocvm_validate_vm_host || exit 1
     sanitize_lima_sock_dir
 
     [[ "$#" -eq 0 ]] || { echo "[init] Unknown option: $1" >&2; exit 2; }
@@ -22108,7 +22270,7 @@ case "$cmd" in
     fi
     # Clean up shared socket dir that Lima's docker-rootful template creates;
     # leftover after VM deletion it confuses limactl into a fatal error.
-    rm -rf "$HOME/.lima/sock" 2>/dev/null || true
+    rm -rf "$OCVM_LIMA_HOME/sock" 2>/dev/null || true
     provision_base
     echo
     echo "Next: navigate to your project directory (open terminal in VS Code) and run:"
