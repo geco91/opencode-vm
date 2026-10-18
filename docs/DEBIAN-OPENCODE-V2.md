@@ -63,53 +63,78 @@ Hostnetzroute benötigen einen echten erreichbaren Server. Ein kurzer Smoke-PASS
 ist weder Lastnachweis noch ENFILE-Fix. Größere Lasttests und die separate
 ENFILE-Diagnostik bleiben eigene Arbeitsschritte.
 
-## Experimentmodus dieser ersten Etappe
+## Isolierter V2-Modus
 
 ```bash
 OCVM_EXPERIMENT=v2 bash /pfad/zum/branch/opencode-vm.sh --version
 ```
 
-Dieser Modus verwendet aktuell weiterhin Backend V1. Er trennt
+Dieser Modus installiert und verwendet OpenCode **2.0.32**. Er trennt
 `~/.opencode-vm-v2/`, dessen `global/{config,data,state}/opencode`,
 `~/.opencode-vm-v2/lima` und `oc-base-v2` von den stabilen Pfaden.
 `install`, `update` und OpenLive-Hostsetup sind in diesem Modus gesperrt.
 Immer denselben Modus und einen separaten Testcheckout verwenden. Es findet
 keine automatische Übernahme von V1-Config oder Credentials statt.
 Globale Experimentkonfiguration wird nur einmal in neue Projektkonfiguration
-übernommen; danach bleibt die Konfiguration projektlokal. Es wurde noch keine
-Experiment-VM erstellt oder gestartet.
+übernommen; danach bleibt die Konfiguration projektlokal. Kleine Hosts können
+für `init` `OCVM_BASE_CPUS=2 OCVM_BASE_MEMORY_GIB=2` setzen; die Werte werden
+vor dem Entfernen einer bestehenden Base gegen den Host validiert.
+
+Die native CLI läuft als eigener `serve`-Prozess. Die interne Loopbackbrücke
+übersetzt die bestehenden OCVM-Adapterverträge; Web UI und native TUI verwenden
+die V2-API. Der bisherige SDK-Pin bleibt dafür ein interner OCVM-Client, kein
+V2-Backendnachweis. Das Policyplugin verwendet echte V2-Hooks und den bisherigen
+gemeinsamen Policybesitzer für MCP/A2A/OpenLive.
+
+Die CLI aktiviert in dieser Version keine Event-Payload-Retention. OCVM hält
+deshalb beobachtete native Delivery-/Step-IDs samt Sequenz projektlokal fest.
+Lücken und mehrere gemeinsame Deliveries bleiben unzugeordnet; Text-/Zeitnähe
+begründet keinen Parent und keine automatische Wiederholung eines Auftrags.
+Archivierung nutzt mangels nativer Archive-Update-API ein OCVM-Metadatum; die
+OCVM-Adapter berücksichtigen es, die native Web UI hat damit keine zusätzliche
+Archivfunktion. Aktuelle Credentials werden bei Finalisierung aus der gepinnten
+nativen Datenbank ausschließlich lesend gesichert und bei frischer Historie
+getrennt wiederhergestellt. V1-Credentials werden nicht importiert.
 
 ## Verifizierter Stand
 
-- Cloud: Debian 13.6, x86_64; kein `/dev/kvm`. Kein realer Lima/KVM-Nachweis.
+- Cloud: Debian 13.6, x86_64; kein `/dev/kvm` in dieser Cloudumgebung.
 - Aktueller Code: gast-native Worktrees sind bereits vorhanden. Ihre bestehende
   Persistenz-/Ownership-Grenze wird nicht neu erfunden.
 - npm am 18. Oktober: `@opencode/cli` und `@opencode/client` jeweils 2.0.32.
   Quelltag `v2.0.32`: `843a6c514e606b436a7fe713422ace0a93ad3d61`.
   CLI-/Client-Tarballs und Linux-x64-Binary anhand npm-SHA512 geprüft.
-- Isolierte Binary meldet `opencode v2.0.32`. Eigener Loopbackserver gestartet;
-  `/api/info`, `/api/location`, `/api/session`, `/api/config`, `/api/agent`
-  gelesen und genau eine eigene leere Testsession erstellt. Keine Inference.
+- Isolierte Binary meldet `opencode v2.0.32`. Native API-/Plugin-Smokes laufen
+  mit eigenen temporären Daten und einem lokalen synthetischen Modellserver;
+  keine externen Modellanfragen oder übernommenen Provider-Credentials.
 - V2 verwendet `serve`, den Client `@opencode/client`, `/api/...` und eine neue
   Plugin-API. Ein alter `/global/health`-Abruf liefert sogar HTML mit HTTP 200;
   HTTP-Erfolg allein ist deshalb keine Backend-Healthprüfung.
-- V2-History hat andere Nachrichtenstrukturen; Parent-/Receipt-Zuordnung muss
-  fachlich portiert werden. Ein bloßer Paket- oder Importwechsel reicht nicht.
+- MCP: native Session-Erzeugung, Policyadoption, Prompt und vollständiges
+  korrekt zugeordnetes Ergebnis PASS. Ergebnis nach Serverneustart erneut PASS.
+- Completion-Gate: synthetischer Question-Toolcall endet als gespeicherter
+  `INPUT_REQUIRED`-Bericht ohne nativen Dialog; Usage bleibt erhalten.
+- OpenLive: nativer Sessiontool-Pluginstart, Tool-/Manager-Rechteprüfung und
+  vollständiger synchroner Prompt über den bestehenden Gateway PASS. Keine
+  Aussage über echte Voice-/Desktop-Abnahme.
 - Debian-Helperproben: projektnamensgleiches MD5, Dateimtime und YAML-Einfügung
   mit erhaltenem Modus 0600 PASS. Fehlendes KVM wird vor Base-Neuaufbau erkannt.
 - Bash-Syntax, ShellCheck Fehlerstufe und Vergleich mit dem unveränderten
   Ausgangsskript PASS (keine neuen ShellCheck-Muster). MCP-Typecheck PASS;
-  eingebetteter Managed-Runtime-Payload unverändert und aktuell.
+  deterministischer eingebetteter Managed-Runtime-Payload wird mitgebaut.
 - Zusätzliche gezielte Proben PASS: Hashing von Dateinamen mit Backslash,
   ungültige/symlinkbasierte YAML-Dateien bleiben unverändert, keine Lima-Aufrufe
   vor KVM-Fehler, Experiment-Globalsync bleibt aus, OpenLive-Hostsetup gesperrt.
   Der BSD-mtime-Zweig wurde mit einem Befehlsstub geprüft; kein echter Maclauf.
-- Produktbackend ist bislang V1. V2-Parität, Proxmox und macOS-Abnahme stehen aus.
-- Die lesende Vorbereitung des Testsystems wurde über BI-MC angenommen.
-  Der spätere Statusabruf scheiterte mit Timeout und anschließend explizit
-  getrenntem Tunnel-Client. Kein bestätigtes Ergebnis, kein VM-Aufbau und
-  keine bestätigte freie Ressource. Den ursprünglichen Auftrag nach
-  Wiederverbindung abgleichen, nicht erneut absenden.
+- testproxmox: ursprünglichen Auftrag abgeglichen, danach eine eigene Debian
+  13 VM angelegt. Lima 2.2.1 (offizielles Release, SHA-256 geprüft), QEMU/KVM,
+  9p und verschachtelte KVM-Beschleunigung bis zum Lima-Gast belegt. OVMF war
+  erforderlich. Ein Einfrieren der eigenen VM trat auf; nach eigenem Neustart
+  und kleinerer Lima-Speichergröße funktionierte der Smoke. Ursache offen,
+  kein Last-/Stabilitätsnachweis; fremde Ressourcen laut Abschlussprüfung
+  unverändert. Private Verbindungsdaten bleiben außerhalb dieses Repos.
+- Noch offen: vollständige OCVM-Base-/Session-/Reattach-Abnahme auf Debian,
+  weitere Fehler-/Abbruch-/Queue-/Credential-Smokes und echter macOS-Lauf.
 
 ## Offizielle versionsgebundene Quellen
 

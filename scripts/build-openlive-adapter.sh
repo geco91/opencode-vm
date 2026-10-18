@@ -34,6 +34,7 @@ mkdir -p "$STAGE/dist/acp" "$STAGE/dist/core" "$STAGE/dist/manager" \
 cp -p "$ADAPTER/package.json" "$ADAPTER/package-lock.json" "$STAGE/"
 cp -p "$ROOT/LICENSE" "$STAGE/LICENSE"
 cp -p "$ADAPTER/src/manager/tool.mjs" "$STAGE/manager/tool.mjs"
+cp -p "$ADAPTER/src/manager/tool-v2.mjs" "$STAGE/manager/tool-v2.mjs"
 cp -p "$ADAPTER/dist/main.js" "$ADAPTER/dist/types.js" "$STAGE/dist/"
 cp -p "$ADAPTER/dist/acp/transport.js" "$STAGE/dist/acp/"
 cp -p "$ADAPTER/dist/core/call-controller.js" \

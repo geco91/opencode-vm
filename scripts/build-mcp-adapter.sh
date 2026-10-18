@@ -32,6 +32,8 @@ STAGE="$TMP/$NAME"
 mkdir -p "$STAGE/dist" "$STAGE/runtime"
 cp -p "$ROOT/runtime/managed-core.mjs" "$ROOT/runtime/managed-policy.mjs" "$ROOT/runtime/a2a-managed.py" "$STAGE/runtime/"
 cp -p "$ROOT/runtime/guest-state.py" "$STAGE/runtime/"
+cp -p "$ROOT/runtime/"v2-*.mjs "$STAGE/runtime/"
+cp -p "$ROOT/runtime/v2-credentials.py" "$STAGE/runtime/"
 
 (
   cd "$ADAPTER"

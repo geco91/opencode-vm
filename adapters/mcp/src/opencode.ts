@@ -276,10 +276,11 @@ export class OpenCodeGateway implements SessionGateway {
         ...(password
           ? {
               headers: {
+                "x-ocvm-adapter": "1",
                 Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
               },
             }
-          : {}),
+          : { headers: { "x-ocvm-adapter": "1" } }),
       });
   }
 

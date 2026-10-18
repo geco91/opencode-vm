@@ -39,7 +39,8 @@ boundary remains guest/host credential and origin separation. See
 
 Debian host support and OpenCode V2 migration are being developed on
 `feat/debian-opencode-v2`. See [the combined plan and verified status](docs/DEBIAN-OPENCODE-V2.md).
-The product backend on this branch is still V1 until the API/plugin port passes.
+`OCVM_EXPERIMENT=v2` selects the pinned OpenCode 2.0.32 runtime in its own
+Lima/config/data namespace. The default invocation retains the saved V1 setup.
 The Debian candidate selects Lima/QEMU with KVM and 9p; a usable `/dev/kvm` is
 required. macOS continues to use Lima/vz with virtiofs.
 
@@ -47,12 +48,24 @@ On Debian install the official [Lima Linux release](https://lima-vm.io/docs/inst
 and host dependencies before running `init`:
 
 ```bash
-sudo apt-get install qemu-system qemu-utils curl jq rsync python3 openssh-client sqlite3 libdigest-sha-perl iproute2
+sudo apt-get install qemu-system qemu-utils ovmf curl jq rsync python3 openssh-client sqlite3 libdigest-sha-perl iproute2
 ```
 
 Grant the Lima user KVM access using the host's normal group/permissions setup.
 When Debian itself is a VM, enable nested virtualization in its hypervisor.
-The cloud checks do not establish a working Lima/KVM installation.
+An initial nested KVM/9p smoke passed on a dedicated Debian 13 test VM. Full
+OCVM lifecycle and native macOS acceptance remain separate checks.
+
+Use the branch checkout directly for V2, including every later command:
+
+```bash
+OCVM_EXPERIMENT=v2 bash ./opencode-vm.sh init
+OCVM_EXPERIMENT=v2 bash ./opencode-vm.sh web --no-mcp
+```
+
+Small hosts can set `OCVM_BASE_CPUS=2 OCVM_BASE_MEMORY_GIB=2` for `init`.
+V2 global configuration sync remains disabled; configure providers inside the
+isolated project. Credentials are checkpointed separately from fresh history.
 
 ## Quick Start
 
