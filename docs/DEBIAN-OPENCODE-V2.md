@@ -63,6 +63,22 @@ Hostnetzroute benötigen einen echten erreichbaren Server. Ein kurzer Smoke-PASS
 ist weder Lastnachweis noch ENFILE-Fix. Größere Lasttests und die separate
 ENFILE-Diagnostik bleiben eigene Arbeitsschritte.
 
+## Experimentmodus dieser ersten Etappe
+
+```bash
+OCVM_EXPERIMENT=v2 bash /pfad/zum/branch/opencode-vm.sh --version
+```
+
+Dieser Modus verwendet aktuell weiterhin Backend V1. Er trennt
+`~/.opencode-vm-v2/`, dessen `global/{config,data,state}/opencode`,
+`~/.opencode-vm-v2/lima` und `oc-base-v2` von den stabilen Pfaden.
+`install`, `update` und OpenLive-Hostsetup sind in diesem Modus gesperrt.
+Immer denselben Modus und einen separaten Testcheckout verwenden. Es findet
+keine automatische Übernahme von V1-Config oder Credentials statt.
+Globale Experimentkonfiguration wird nur einmal in neue Projektkonfiguration
+übernommen; danach bleibt die Konfiguration projektlokal. Es wurde noch keine
+Experiment-VM erstellt oder gestartet.
+
 ## Verifizierter Stand
 
 - Cloud: Debian 13.6, x86_64; kein `/dev/kvm`. Kein realer Lima/KVM-Nachweis.
@@ -81,7 +97,19 @@ ENFILE-Diagnostik bleiben eigene Arbeitsschritte.
   fachlich portiert werden. Ein bloßer Paket- oder Importwechsel reicht nicht.
 - Debian-Helperproben: projektnamensgleiches MD5, Dateimtime und YAML-Einfügung
   mit erhaltenem Modus 0600 PASS. Fehlendes KVM wird vor Base-Neuaufbau erkannt.
+- Bash-Syntax, ShellCheck Fehlerstufe und Vergleich mit dem unveränderten
+  Ausgangsskript PASS (keine neuen ShellCheck-Muster). MCP-Typecheck PASS;
+  eingebetteter Managed-Runtime-Payload unverändert und aktuell.
+- Zusätzliche gezielte Proben PASS: Hashing von Dateinamen mit Backslash,
+  ungültige/symlinkbasierte YAML-Dateien bleiben unverändert, keine Lima-Aufrufe
+  vor KVM-Fehler, Experiment-Globalsync bleibt aus, OpenLive-Hostsetup gesperrt.
+  Der BSD-mtime-Zweig wurde mit einem Befehlsstub geprüft; kein echter Maclauf.
 - Produktbackend ist bislang V1. V2-Parität, Proxmox und macOS-Abnahme stehen aus.
+- Die lesende Vorbereitung des Testsystems wurde über BI-MC angenommen.
+  Der spätere Statusabruf scheiterte mit Timeout und anschließend explizit
+  getrenntem Tunnel-Client. Kein bestätigtes Ergebnis, kein VM-Aufbau und
+  keine bestätigte freie Ressource. Den ursprünglichen Auftrag nach
+  Wiederverbindung abgleichen, nicht erneut absenden.
 
 ## Offizielle versionsgebundene Quellen
 
