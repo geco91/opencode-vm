@@ -11,7 +11,7 @@ fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 | --- | --- | --- |
 | Native V2-API, Policy, MCP, A2A und OpenLive-Gateway | PASS mit echter Binary und lokalem Mock | Web/MCP und exaktes Sitzungsergebnis belegt; übrige native Verträge gezielt in der Cloud geprüft |
 | Kalter Start und Gast-Worktree über MCP | Syntax/Build/Verträge PASS | PASS mit 0.7.81, ohne manuelles Vorwärmen |
-| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine, auch mit 0.1.68 | Offen: `create_monitor` scheitert im Registry-Pfad; Python-Resolver-Timeouts und Lockfehler protokolliert. Resolverkorrektur noch real zu prüfen |
+| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine, auch mit 0.1.68 | Offen: `create_monitor` mit 0.1.68 bestätigt; `trigger_monitor` liefert internen Fehler, kein Dispatch nachgewiesen. Offener Engine-Wake wird eingegrenzt |
 | Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | PASS mit 0.7.84 nach echtem Boot-Wechsel und geleertem Gast-`/tmp`; 0.7.82 bleibt historischer FAIL |
 | Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | PASS: vorhandenes Ticket und genau ein neuer Schreibzugriff nach Neuboot |
 | Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | PASS mit 0.7.84: tatsächliche native Live-Liste und folgende Markerzeile aus stdin-gespeistem Hostskript |
@@ -396,8 +396,24 @@ Gezielte Cloud-Proben bewahren die Schutzgrenzen einschließlich eines
 simulierten 9p-Vorfahren. Für eine Auflösung mit Readback sinkt die Zahl der
 externen stat-Prozesse von 38 auf 8. Quellhelper, eingebetteter Payload und
 MCP-Archiv stimmen bytegenau überein. Die native Integration mit Taskboard,
-MCP, echten V2-Hooks, Priming und zweitem Wake besteht erneut. Reale
-Vorher-/Nachher-Messung und anschließender Engine-Nachweis stehen noch aus.
+MCP, echten V2-Hooks, Priming und zweitem Wake besteht erneut.
+
+Die reale Messung im Unit-User-/AppArmor-Kontext bestätigt für je eine
+Auflösung 36 statt 6 stat-Starts und 530 statt 136 ms. Der normale warme
+Attach lädt MCP 0.1.68 und den neuen Helper; acht vorhandene Sitzungen, Key
+und zwei Taskboard-Tickets bleiben erhalten. Ein neuer Testmonitor liefert
+eine erfolgreiche Create-Antwort samt persistentem Eintrag. Die Create-Dauer
+beträgt weiterhin 16 Sekunden; ein allgemeiner Registry- oder Lock-Fix ist
+daraus nicht bewiesen.
+
+Der Daemon-Dispatch bleibt offen: Das lange Testintervall von 86400 Sekunden
+setzt den nächsten automatischen Lauf erwartungsgemäß auf den Folgetag.
+Ein erster Lauf muss deshalb ausdrücklich angefordert werden. Der gemessene
+`trigger_monitor` lieferte einen internen Fehler; es entstanden keine neue
+Sitzung, kein Receipt und keine weitere Mock-Inference. Beide Testmonitore
+sind wieder deaktiviert. Das Engine-Log meldet einen noch offenen Wake und
+Registry-Lockfehler. Eine zeitlich begrenzte Metadatenspur soll den konkreten
+offenen Funktionsaufruf zeigen; sie ersetzt keine unveränderte Produktabnahme.
 
 ## Umfang der nativen Brücke
 
