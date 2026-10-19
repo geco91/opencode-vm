@@ -12,11 +12,11 @@ fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 | Native V2-API, Policy, MCP, A2A und OpenLive-Gateway | PASS mit echter Binary und lokalem Mock | Web/MCP und exaktes Sitzungsergebnis belegt; übrige native Verträge gezielt in der Cloud geprüft |
 | Kalter Start und Gast-Worktree über MCP | Syntax/Build/Verträge PASS | PASS mit 0.7.81, ohne manuelles Vorwärmen |
 | Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine | Offen: Erzeugungs-/Dispatchbestätigung unsicher; Ursache nicht belegt |
-| Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | 0.7.82 FAIL; echter Neuboot mit korrigierter Finalisierung noch offen |
-| Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | Frisches Fixture PASS; Schreiben nach Neuboot noch offen |
-| Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | Gegenprobe mit 0.7.84 noch offen |
-| OAuth-Logout bewahrt unabhängigen Key | PASS mit synthetischen Credentials | Native Credentials/Snapshot belegt; vollständiger Hostwrapper-Nachweis noch offen |
-| 9p-Dateien, Rechte, Symlinks, Git und Worktree | Keine VM-Abnahme möglich | PASS; Locks/Notifications und FD-Basiswerte noch offen |
+| Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | PASS mit 0.7.84 nach echtem Boot-Wechsel und geleertem Gast-`/tmp`; 0.7.82 bleibt historischer FAIL |
+| Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | PASS: vorhandenes Ticket und genau ein neuer Schreibzugriff nach Neuboot |
+| Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | Marker nach `provider list` erhalten; Wiederholung mit tatsächlichem Live-VM-Aufruf noch offen |
+| OAuth-Logout bewahrt unabhängigen Key | PASS mit synthetischen Credentials | PASS: Hostwrapper-Dryrun/Logout, native DB und dauerhafter Snapshot |
+| 9p-Dateien, Rechte, Symlinks, Git und Worktree | Keine VM-Abnahme möglich | Dateipfade PASS; `flock` über Host/Gast nicht exklusiv. Host-inotify bei Gast-Write belegt; Gegenrichtung offen. FD-Basiswerte erfasst |
 | macOS/VZ/virtiofs | Bash-3.2.57-Kompatibilität geprüft | Echter Maclauf offen |
 
 ## Auftrag und Quellen
@@ -296,7 +296,8 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   synthetischer Key bleiben nach Sicherung, vollständigem Leeren und Restore
   identisch, ohne erneuten Modellaufruf. Zusätzlich Kopierfehler, leeres
   Boot-Verzeichnis, veraltete Zieldatei, private Credentials und ausgeschlossene
-  Legacy-Auth geprüft. Der entsprechende erneute echte VM-Boot bleibt offen.
+  Legacy-Auth geprüft. Der entsprechende reale Neuboot besteht mit 0.7.84
+  (Einzelheiten unten).
 - Zusätzliche Cloud-Integration mit tatsächlicher nativer V2-Plugin-Initialisierung
   und Hooks, Taskboard 0.6.0, MCP-Transport und unveränderter MonitorEngine PASS:
   primierter Manager und zweiter Wake erhalten getrennte exakte Receipts und
@@ -314,8 +315,50 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   interaktive VM-Einstieg bleibt separat. Gezielter Vorher-/Nachher-Nachweis
   mit echten stdin-lesenden Kindprozessen und Bash 5 sowie 3.2.57 PASS:
   Liste, Logout und Capture behalten das folgende Hostkommando; JSON-Capture
-  und Auth-Publikation funktionieren weiter. Der reguläre Gast-Wrapper-
-  Nachweis dieses letzten Hostfixes steht noch aus.
+  und Auth-Publikation funktionieren weiter. Im realen Hostskript blieb die
+  Markerzeile nach `provider list` erhalten. Dabei war der Webserver gestoppt;
+  ob der innere VM-Aufruf tatsächlich ausgeführt wurde, ist damit nicht
+  belegt. Eine gezielte Wiederholung bei laufendem Backend bleibt offen.
+
+## Reale Abnahme mit 0.7.84
+
+Der kombinierte Bericht vom 19. Oktober wurde vollständig gelesen und als
+UTF-8-Original geprüft: 8743 Byte, SHA-256
+`ef2c464ac0d8e87accd7f879595a5f00ae0fed7ede6966a0fea36031b47aaacd`.
+Private Verbindungsdaten und Credential-Dateien bleiben außerhalb des Repos.
+
+Die kontrollierte Finalisierung schrieb die native DB mit sieben vorhandenen
+Sitzungen in den Share. Nach regulärem Controller-Sync und Lima-Stop/Start
+änderte sich die Boot-ID; Gast-`/tmp` enthielt die Laufzeitdaten nicht mehr.
+Der normale Attach aus 0.7.84 stellte die Daten wieder her und erreichte
+vollständige MCP-Bereitschaft. Native Session-ID, Nachrichten-IDs und Parent,
+der vollständige 85-Byte-Ergebnistext mit SHA-256
+`1487dec732ccb1acd83cc5786d2ab5c4f266618d3762500688c2611e343d33d4`
+sowie der synthetische Key blieben identisch. Der Mock-Zähler blieb bei sechs;
+der Restore erzeugte keine Inference und keine neue Sitzung.
+
+Der echte V2-Hostwrapper führte OAuth-Dryrun und Logout aus. Die native DB und
+der private Snapshot enthielten danach weiterhin den unabhängigen Key. Nach
+dem Neuboot ließ sich das vorhandene Taskboard-Ticket lesen und genau ein
+neues Testticket anlegen und zurücklesen. Der frühere SQLite-malformed-Fehler
+trat dabei nicht auf; seine ursprüngliche Ursache bleibt unbewiesen.
+
+Die Dateiprüfung über 9p bestätigt Inhaltsübertragung in beide Richtungen und
+ein Host-inotify-Ereignis bei Gast-Schreibzugriff. **Ein `flock` im Host
+verhinderte den Gastzugriff auf dieselbe Lockdatei nicht.** Daher besteht kein
+Nachweis einer gemeinsamen exklusiven Host-/Gast-Sperre. Die bestehenden
+Adapter-Sperren koordinieren kooperierende Prozesse im selben Gast; daraus
+folgt keine Sperre gegen direkte Host-Schreiber. Die Gast-inotify-Richtung
+wird getrennt nachgeprüft. Momentaufnahmen der offenen Dateien und Limits in
+Host und Gast zeigten keine Anomalie; sie sind kein Last- oder ENFILE-Nachweis.
+
+Der ursprüngliche Monitor bleibt deaktiviert und seine unsicheren Aufträge
+bleiben erhalten. Eine gezielte Probe an einer bestehenden Sitzung bestätigt
+im tatsächlichen Unit-User-/AppArmor-Kontext Settings, Exposition, Status und
+Adoption. Adoption dauerte 1445 ms bei 3000 ms Frist: ein Timeout ist damit
+nicht belegt. Auch ein Worktreefehler ist nicht belegt. Die eigentliche
+Erzeugungs-/Dispatchunsicherheit des Engine-Diensts ist noch offen und wird
+mit einer begrenzten Probe am tatsächlichen Erzeugungspfad eingegrenzt.
 
 ## Umfang der nativen Brücke
 
