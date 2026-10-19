@@ -411,9 +411,18 @@ setzt den nächsten automatischen Lauf erwartungsgemäß auf den Folgetag.
 Ein erster Lauf muss deshalb ausdrücklich angefordert werden. Der gemessene
 `trigger_monitor` lieferte einen internen Fehler; es entstanden keine neue
 Sitzung, kein Receipt und keine weitere Mock-Inference. Beide Testmonitore
-sind wieder deaktiviert. Das Engine-Log meldet einen noch offenen Wake und
-Registry-Lockfehler. Eine zeitlich begrenzte Metadatenspur soll den konkreten
-offenen Funktionsaufruf zeigen; sie ersetzt keine unveränderte Produktabnahme.
+sind im Nachweis wieder deaktiviert. Das append-basierte Engine-Log enthält
+Skip-Zähler und Registry-Lockfehler. Der Skip-Zähler wird durch erfolgreich
+abgeschlossene Zwischentakte nicht gelöscht; sein „since“ ist kein Nachweis
+einer durchgehend blockierten Aktion.
+
+Die anschließende zeitlich begrenzte Metadatenspur zeigt 17 abgeschlossene
+Takte und offene Paare am Aufnahmeende. Der Logger stoppt nach seinem festen
+Zeitfenster; danach fehlende Abschlusszeilen beweisen keinen dauerhaften
+Hänger. `mkdir`/`EEXIST` ist außerdem behandelte Lock-Konkurrenz. Die Probe
+begründet deshalb keinen weiteren Produktfix. Ihre temporäre Unit-Überlagerung
+ist entfernt und die Originalkonfiguration wiederhergestellt. Der reguläre
+explizite erste und zweite Wake am unveränderten Dienst bleiben nachzuweisen.
 
 ## Umfang der nativen Brücke
 
