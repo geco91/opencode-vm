@@ -11,7 +11,7 @@ fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 | --- | --- | --- |
 | Native V2-API, Policy, MCP, A2A und OpenLive-Gateway | PASS mit echter Binary und lokalem Mock | Web/MCP und exaktes Sitzungsergebnis belegt; übrige native Verträge gezielt in der Cloud geprüft |
 | Kalter Start und Gast-Worktree über MCP | Syntax/Build/Verträge PASS | PASS mit 0.7.81, ohne manuelles Vorwärmen |
-| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine, auch mit 0.1.69 | Offen: `create_monitor` bestätigt; mit 0.1.68 scheiterten `enable_monitor` und `disable_monitor` an der Registry-Sperre. Reale Gegenprobe der Korrektur steht aus |
+| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine, auch mit 0.1.69 | PASS mit 0.7.87 / 0.1.69: regulärer Daemon erzeugt Manager und zwei getrennte terminale Aufträge mit geprüften Ergebnishashes; anschließend deaktiviert. Lokales Mockmodell |
 | Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | PASS mit 0.7.84 nach echtem Boot-Wechsel und geleertem Gast-`/tmp`; 0.7.82 bleibt historischer FAIL |
 | Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | PASS: vorhandenes Ticket und genau ein neuer Schreibzugriff nach Neuboot |
 | Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | PASS mit 0.7.84: tatsächliche native Live-Liste und folgende Markerzeile aus stdin-gespeistem Hostskript |
@@ -343,8 +343,8 @@ Der normale Attach aus 0.7.84 stellte die Daten wieder her und erreichte
 vollständige MCP-Bereitschaft. Native Session-ID, Nachrichten-IDs und Parent,
 der vollständige 85-Byte-Ergebnistext mit SHA-256
 `1487dec732ccb1acd83cc5786d2ab5c4f266618d3762500688c2611e343d33d4`
-sowie der synthetische Key blieben identisch. Der Mock-Zähler blieb bei sechs;
-der Restore erzeugte keine Inference und keine neue Sitzung.
+sowie der synthetische Key blieben identisch. Der Rollenlogwert des Mocks blieb
+bei sechs; es wurde kein neuer Prompt gesendet und keine neue Sitzung erzeugt.
 
 Der echte V2-Hostwrapper führte OAuth-Dryrun und Logout aus. Die native DB und
 der private Snapshot enthielten danach weiterhin den unabhängigen Key. Nach
@@ -371,7 +371,7 @@ Adoption. Adoption dauerte 1445 ms bei 3000 ms Frist: ein Timeout ist damit
 nicht belegt. Auch ein Worktreefehler ist nicht belegt. Die eigentliche
 Erzeugungs-/Dispatchunsicherheit des Engine-Diensts ist noch offen und wird
 mit einer begrenzten Probe am tatsächlichen Erzeugungspfad eingegrenzt.
-Diese eine Probe gelang vollständig, ohne Inference: native Erzeugung
+Diese eine Probe gelang vollständig, ohne Modellauftrag: native Erzeugung
 1820 ms, Adoption 607 ms, gesamter Ablauf 3366 ms bei getrennten Fristen.
 Sie beweist keinen Daemon-Dispatch. Ein frischer `create_monitor`-Aufruf
 lieferte dagegen einen internen Fehler; vollständige MCP-Liste und lesender
@@ -410,7 +410,7 @@ Der Daemon-Dispatch bleibt offen: Das lange Testintervall von 86400 Sekunden
 setzt den nächsten automatischen Lauf erwartungsgemäß auf den Folgetag.
 Ein erster Lauf muss deshalb ausdrücklich angefordert werden. Der gemessene
 `trigger_monitor` lieferte einen internen Fehler; es entstanden keine neue
-Sitzung, kein Receipt und keine weitere Mock-Inference. Beide Testmonitore
+Sitzung und kein Receipt; der Rollenlogwert blieb unverändert. Beide Testmonitore
 sind im Nachweis wieder deaktiviert. Das append-basierte Engine-Log enthält
 Skip-Zähler und Registry-Lockfehler. Der Skip-Zähler wird durch erfolgreich
 abgeschlossene Zwischentakte nicht gelöscht; sein „since“ ist kein Nachweis
@@ -431,7 +431,7 @@ deshalb erfolgte kein Trigger. Auch der abschließende `disable_monitor`-Aufruf
 lieferte einen internen Fehler (6272 ms), der gewünschte deaktivierte Zustand
 war jedoch bestätigt. Lesende MCP-Aufrufe funktionierten. Die ab frischen
 Byte-Offsets gelesenen Engine-Logs enthielten keinen neuen Fehler. Acht
-Sitzungen, sechs bisherige Mock-Anfragen, ein Key und zwei Taskboard-Tickets
+Sitzungen, der Rollenlogwert sechs, ein Key und zwei Taskboard-Tickets
 blieben unverändert. Die ursprüngliche Ausnahme im Verwaltungs-Schreibpfad
 wird gezielt erfasst; dieser Befund beweist keinen blockierten Engine-Takt.
 
@@ -460,8 +460,59 @@ echter Helper-Ausführung reproduziert zuvor einen Lockfehler. Mit der Korrektur
 gelingen beide Änderungen mit aufeinanderfolgenden Generationen. Veraltete
 Generationen und ungültige Registry-Daten werden weiterhin zurückgewiesen.
 Die vollständige native Cloud-Integration mit Taskboard, MCP, Priming und
-zweitem Wake besteht erneut mit exakt zwei lokalen Modellaufrufen. Ein Erfolg
-auf dem tatsächlichen Debian-Daemon ist damit noch nicht nachgewiesen.
+zweitem Wake besteht erneut mit exakt zwei lokalen Modellaufrufen. Die
+anschließende reale Gegenprobe ist im folgenden Abschnitt belegt.
+
+## Reale Monitorabnahme mit 0.7.87 / MCP 0.1.69
+
+Der tatsächliche Test auf testproxmox lädt Commit
+`0284401085861d291ae18490342ed35b44762802` über einen normalen warmen Attach.
+Der vollständige Abschlussbericht wurde über beide Suchseiten gelesen und
+sein sichtbares UTF-8-Original geprüft: 8555 Byte, SHA-256
+`61e6a24fa0c6f22c9d7cd5da70a1af64a924e9b6667357e316a05d488df32cfb`.
+
+Die Archivprüfsumme ist
+`999d3f6f204d2e2f953643468a9e1395a20998a67d856b991221394024d0e986`.
+MCP und Dashboard verwenden beide den neuen Registry-Code mit SHA-256
+`e4e3230066a6765cf9b1a0936eac47eb367f13b309e64daec508a762dfc4a588`.
+Die unveränderte MonitorEngine läuft im regulären systemd-Dienst unter
+AppArmor, ohne Preload oder Unit-Überlagerung. Der Attach kompiliert die
+Quellpakete regulär; zwischenzeitlich fehlende Dashboard-Module waren Teil
+dieser noch laufenden Vorbereitung. Es gab keinen manuellen Build, keinen
+Authseed und keinen weiteren VM-Neuboot.
+
+Über die öffentliche MCP-Schnittstelle gelingen Aktivieren (3179 ms), erster
+Trigger (3710 ms), zweiter Trigger (5862 ms) und Deaktivieren (5022 ms).
+Der erste Trigger führt zur Primierung und Adoption eines neuen Managers;
+erst nach dem vollständig bestätigten ersten Ergebnis wird der zweite
+Trigger gesendet. Beide Aufträge stammen vom unveränderten Daemon. Die
+Suchcursor sind jeweils vollständig verfolgt, die terminalen Antworten tragen
+`finish:stop` und den richtigen Parent. Die vollständigen Texte wurden vor
+Ort gelesen und ihre UTF-8-Hashes berechnet:
+
+| Auftrag | User-Receipt | Assistant | Byte | Ergebnis-SHA-256 |
+| --- | --- | --- | --- | --- |
+| Primierung | `msg_0447ab62c7d040ecafdf735a5deac398` | `msg_155d56eeb001vVBMLfO0F5d7Y1` | 179 | `36865171d376c6622f8198329009e64b2eba3b2c4a6e543911485fdfa81d59f0` |
+| Zweiter Wake | `msg_6685db9c6a2a43749914c16a88254628` | `msg_155d94f40001CVLpH0910LN0YH` | 179 | `7d39da87fcae8480db571c4b97e292c4b12d7e7e2e8315e90ed556f5d80a681d` |
+
+Das verwendete Modell ist ausschließlich der lokale synthetische Provider.
+Der bisherige Rollen-Logwert `ROLE=system` stieg von sechs auf sieben; der
+Handler protokolliert dabei nur die letzten drei Nachrichten je Anfrage.
+Diese Werte sind auch in den historischen realen Tests kein HTTP-Anfragezähler.
+Die abschließende reine Leseprüfung bestätigt eine eigene Endmarke pro POST,
+aber weder Zeitstempel noch vorher erfassten Endmarkenstand. Die 22 Endmarken
+über die gesamte Mock-Laufzeit erlauben deshalb keine exakte Anzahl von
+HTTP-Modellanfragen im Abnahmefenster. Eine Behauptung „exakt zwei Inferenzen"
+ist daraus nicht belegt. Die beiden getrennten terminalen Daemon-Aufträge sind
+belegt; die Cloud-Prüfung besitzt einen separaten tatsächlichen Anfragezähler.
+
+Im frischen Logfenster gibt es keinen Registry-Lock-, Resolver- oder
+Managementfehler. Beide Monitore sind abschließend deaktiviert; beim neuen
+Monitor sind `next_run_at:null`, `run_active:false` und kein ausstehender Wake
+bestätigt. Der alte unsichere Monitor bleibt unberührt. Die Sitzungszahl steigt
+von acht auf neun, entsprechend genau einem vom Daemon erzeugten Manager;
+Key und Taskboard bleiben bei einem Key und zwei Tickets. Dies ist eine
+gezielte Funktionsabnahme mit Mockmodell, keine Last- oder reale Providerabnahme.
 
 ## Umfang der nativen Brücke
 
