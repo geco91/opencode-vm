@@ -206,6 +206,13 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   CLI-Wiederverwendung, Parent-Death, Credential-Restore/Logout und geschützte
   Ablehnung beschädigter Sicherungen funktionieren ebenso wie beim direkten
   nativen Binary. `--version` erzeugt keine native Datenbank.
+- Der reale Gast-Worktree-Test deckte einen fehlenden optionalen
+  `worktree_path` im strengen MCP-Ausgabeschema auf: Sitzung und Worktree
+  entstanden korrekt, die RPC-Antwort wurde danach als ungültig verworfen.
+  Das Schema ist nun an den vorhandenen Rückgabetyp angeglichen. Die erzeugte
+  Sitzung wurde im Test ohne erneute Erzeugung über ihre ID weiter geprüft;
+  Prompt und vollständiger exakt zugeordneter Originaltext sind belegt.
+  Ein frischer RPC-Erzeugungsnachweis mit korrigiertem Schema steht noch aus.
 - Noch offen: erneuter vollständiger Debian-Lauf des korrigierten Stands,
   native Session-Exposition nach Resume und erfolgreicher Monitor-Dispatch
   (bisher nur echte Takte, aber `CREATION_UNCERTAIN`/Registry-Lock-Probleme).

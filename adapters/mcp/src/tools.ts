@@ -1356,6 +1356,7 @@ const createSessionOutputSchema = z
     provider_id: z.string(),
     model_id: z.string(),
     variant: z.string().optional(),
+    worktree_path: z.string().optional(),
     state: z.literal("created"),
   })
   .strict();
