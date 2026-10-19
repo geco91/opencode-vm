@@ -101,7 +101,10 @@ getrennt wiederhergestellt. V1-Credentials werden nicht importiert. Die alte
 `auth.json` ist in V2 kein Credential-Speicher: eine leere Kompatibilitätsdatei
 darf den Resume nicht von einem bereits geleerten Gast-`/tmp` abhängig machen.
 Bei gestoppter V2-VM ist dies nur mit nachgewiesen leerer Legacy-Baseline
-zulässig; V1 behält seine bisherige Snapshot-Sperre.
+zulässig und benötigt zusätzlich einen gültigen privaten nativen Snapshot.
+V1 behält seine bisherige Snapshot-Sperre. Native Credential-Events schreiben
+die Sicherung unmittelbar sowohl gastlokal als auch in den dauerhaften
+Projektshare (0600), nicht erst beim sauberen Ende.
 
 ## Verifizierter Stand
 
@@ -171,6 +174,11 @@ zulässig; V1 behält seine bisherige Snapshot-Sperre.
   gesicherte Datei ausschließlich JSON enthält. V2-Resume hängt nicht mehr
   an der nicht verwendeten alten Authdatei. Gezielte lokale Capture-/Baseline-
   Proben einschließlich unverändertem V1-Fail-Closed PASS.
+- Zusätzliche Crash-Probe am 19. Oktober PASS: nativen synthetischen Key
+  anlegen, unmittelbaren dauerhaften Snapshot prüfen, Supervisor hart beenden,
+  native DB vollständig verwerfen, nur den Snapshot übernehmen, Key in der
+  frischen DB wiederfinden und Logout unmittelbar dauerhaft sichern.
+  Stopped-Resume ohne gültigen privaten Snapshot bleibt gesperrt.
 - Noch offen: erneuter vollständiger Debian-Lauf des korrigierten Stands,
   native Session-Exposition nach Resume und erfolgreicher Monitor-Dispatch
   (bisher nur echte Takte, aber `CREATION_UNCERTAIN`/Registry-Lock-Probleme).

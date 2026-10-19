@@ -77,10 +77,15 @@ async function serve(clientArgs) {
   const credentials = join(process.env.XDG_DATA_HOME ?? join(process.env.HOME, ".local/share"), "opencode/credentials-v2.json");
   const snapshot = async () => {
     const value = await contract.api("GET", "/api/credential");
-    await mkdir(dirname(credentials), { recursive: true, mode: 0o700 });
-    const temporary = `${credentials}.${process.pid}.tmp`;
-    await writeFile(temporary, JSON.stringify({ version: PRODUCT_VERSION, data: value.data }), { mode: 0o600 });
-    await rename(temporary, credentials);
+    const encoded = JSON.stringify({ version: PRODUCT_VERSION, data: value.data });
+    // Publish credential events to the durable project share immediately;
+    // VM-local /tmp does not survive a stopped/rebooted Lima guest.
+    for (const target of new Set([credentials, process.env.OCVM_V2_CREDENTIAL_SNAPSHOT].filter(Boolean))) {
+      await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+      const temporary = `${target}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`;
+      try { await writeFile(temporary, encoded, { mode: 0o600, flag: "wx" }); await rename(temporary, target); }
+      finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
+    }
   };
   try {
     const stat = await lstat(credentials);
