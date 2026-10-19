@@ -3,6 +3,22 @@
 Stand: 2026-10-19. Entwicklungsbranch: `feat/debian-opencode-v2`.
 Ausgangscommit: `8305ae90d5bd9a8140fdf850425d5565f53d4bef` (OCVM 0.7.70).
 
+Aktueller Prüfstand: OCVM **0.7.84**, MCP **0.1.67**, OpenLive **0.1.9**,
+OpenCode **2.0.32**. Die folgenden historischen Befunde dokumentieren auch
+fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
+
+| Abnahmepunkt | Cloud | Reales Debian auf testproxmox |
+| --- | --- | --- |
+| Native V2-API, Policy, MCP, A2A und OpenLive-Gateway | PASS mit echter Binary und lokalem Mock | Web/MCP und exaktes Sitzungsergebnis belegt; übrige native Verträge gezielt in der Cloud geprüft |
+| Kalter Start und Gast-Worktree über MCP | Syntax/Build/Verträge PASS | PASS mit 0.7.81, ohne manuelles Vorwärmen |
+| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine | Offen: Erzeugungs-/Dispatchbestätigung unsicher; Ursache nicht belegt |
+| Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | 0.7.82 FAIL; echter Neuboot mit korrigierter Finalisierung noch offen |
+| Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | Frisches Fixture PASS; Schreiben nach Neuboot noch offen |
+| Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | Gegenprobe mit 0.7.84 noch offen |
+| OAuth-Logout bewahrt unabhängigen Key | PASS mit synthetischen Credentials | Native Credentials/Snapshot belegt; vollständiger Hostwrapper-Nachweis noch offen |
+| 9p-Dateien, Rechte, Symlinks, Git und Worktree | Keine VM-Abnahme möglich | PASS; Locks/Notifications und FD-Basiswerte noch offen |
+| macOS/VZ/virtiofs | Bash-3.2.57-Kompatibilität geprüft | Echter Maclauf offen |
+
 ## Auftrag und Quellen
 
 Debian zusätzlich zu macOS als Lima-Host unterstützen und den bestehenden
@@ -212,7 +228,8 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   Das Schema ist nun an den vorhandenen Rückgabetyp angeglichen. Die erzeugte
   Sitzung wurde im Test ohne erneute Erzeugung über ihre ID weiter geprüft;
   Prompt und vollständiger exakt zugeordneter Originaltext sind belegt.
-  Ein frischer RPC-Erzeugungsnachweis mit korrigiertem Schema steht noch aus.
+  Der spätere frische Lauf mit 0.7.81 bestätigt auch die korrigierte
+  RPC-Antwort samt `worktree_path`.
 - Noch offen: erneuter vollständiger Debian-Lauf des korrigierten Stands,
   native Session-Exposition nach Resume und erfolgreicher Monitor-Dispatch
   (bisher nur echte Takte, aber `CREATION_UNCERTAIN`/Registry-Lock-Probleme).
