@@ -399,7 +399,7 @@ MCP-Archiv stimmen bytegenau überein. Die native Integration mit Taskboard,
 MCP, echten V2-Hooks, Priming und zweitem Wake besteht erneut.
 
 Die reale Messung im Unit-User-/AppArmor-Kontext bestätigt für je eine
-Auflösung 36 statt 6 stat-Starts und 530 statt 136 ms. Der normale warme
+Auflösung eine Verringerung von 36 auf 6 stat-Starts und von 530 auf 136 ms. Der normale warme
 Attach lädt MCP 0.1.68 und den neuen Helper; acht vorhandene Sitzungen, Key
 und zwei Taskboard-Tickets bleiben erhalten. Ein neuer Testmonitor liefert
 eine erfolgreiche Create-Antwort samt persistentem Eintrag. Die Create-Dauer
