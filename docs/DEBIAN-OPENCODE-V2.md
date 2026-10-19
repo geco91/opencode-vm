@@ -1,6 +1,6 @@
 # Debian und OpenCode V2: gemeinsamer Entwicklungsplan
 
-Stand: 2026-10-18. Entwicklungsbranch: `feat/debian-opencode-v2`.
+Stand: 2026-10-19. Entwicklungsbranch: `feat/debian-opencode-v2`.
 Ausgangscommit: `8305ae90d5bd9a8140fdf850425d5565f53d4bef` (OCVM 0.7.70).
 
 ## Auftrag und Quellen
@@ -87,14 +87,21 @@ V2-Backendnachweis. Das Policyplugin verwendet echte V2-Hooks und den bisherigen
 gemeinsamen Policybesitzer für MCP/A2A/OpenLive.
 
 Die CLI aktiviert in dieser Version keine Event-Payload-Retention. OCVM hält
-deshalb beobachtete native Delivery-/Step-IDs samt Sequenz projektlokal fest.
+deshalb beobachtete native Enqueue-Typen und Delivery-/Step-IDs samt Sequenz
+projektlokal fest. Interne Kompaktierungs-/Kontextnachrichten ersetzen dabei
+keine Benutzer-ID. Frühere untypisierte Experimentdatensätze werden beim
+Weiterbetrieb als unbekannte Zuordnung behandelt.
 Lücken und mehrere gemeinsame Deliveries bleiben unzugeordnet; Text-/Zeitnähe
 begründet keinen Parent und keine automatische Wiederholung eines Auftrags.
 Archivierung nutzt mangels nativer Archive-Update-API ein OCVM-Metadatum; die
 OCVM-Adapter berücksichtigen es, die native Web UI hat damit keine zusätzliche
 Archivfunktion. Aktuelle Credentials werden bei Finalisierung aus der gepinnten
 nativen Datenbank ausschließlich lesend gesichert und bei frischer Historie
-getrennt wiederhergestellt. V1-Credentials werden nicht importiert.
+getrennt wiederhergestellt. V1-Credentials werden nicht importiert. Die alte
+`auth.json` ist in V2 kein Credential-Speicher: eine leere Kompatibilitätsdatei
+darf den Resume nicht von einem bereits geleerten Gast-`/tmp` abhängig machen.
+Bei gestoppter V2-VM ist dies nur mit nachgewiesen leerer Legacy-Baseline
+zulässig; V1 behält seine bisherige Snapshot-Sperre.
 
 ## Verifizierter Stand
 
@@ -133,8 +140,52 @@ getrennt wiederhergestellt. V1-Credentials werden nicht importiert.
   und kleinerer Lima-Speichergröße funktionierte der Smoke. Ursache offen,
   kein Last-/Stabilitätsnachweis; fremde Ressourcen laut Abschlussprüfung
   unverändert. Private Verbindungsdaten bleiben außerhalb dieses Repos.
-- Noch offen: vollständige OCVM-Base-/Session-/Reattach-Abnahme auf Debian,
-  weitere Fehler-/Abbruch-/Queue-/Credential-Smokes und echter macOS-Lauf.
+- Weitere Cloud-Proben mit echtem V2-Backend PASS: wartende Benutzeraufträge
+  bleiben `submitted` und lesbar; zwei Aufträge erhalten getrennte exakte
+  Endergebnisse; Abbruch bleibt `aborted`. Modellvorgabe samt Variante,
+  Umbenennen und OCVM-Archivierung sind geprüft. Bildanhang über den echten
+  MCP-HTTP-Upload und die native URI-Admission PASS; Materialisierung der
+  gespeicherten V2-Datei und V1-FilePart-Regression PASS.
+- Native Credentials: synthetischen Key sichern (0600), rein lesend aus SQLite
+  checkpointen, in frische leere Sitzungsdatenbank wiederherstellen und Logout
+  in der Sicherung nachweisen PASS. Keine realen Zugangsdaten verwendet.
+- Richtlinien: Read-Ask wird mit genau einer lokalen Modellanfrage als
+  `INPUT_REQUIRED` beendet, ohne offene Dialoge. Explizit freigegebene externe
+  Einzeldatei wird vom nativen Read-Tool gelesen. A2A mit tatsächlichem
+  Client 1.2.0 (Erzeugen/Adoption/synchroner Prompt) PASS. Providerstatus und
+  Doctor erkennen den Wrapper samt authentifiziertem echten Backend.
+- CLI-Probe am 19. Oktober PASS: äußerer No-Auth-Modus mit privatem nativen
+  Passwort, Wiederverwendung des Servers durch `models` und Ende des nativen
+  Daemons bei hartem Supervisorende. CLI-Serverflag steht hinter dem Befehl.
+- Vollständiger Debian-Lauf auf Basis `b52855c` mit lokalem Diagnosefix:
+  Base-Init zweimal exit 0, echte Session mit KVM/9p, bidirektionale Dateien,
+  Modus 0600, Symlink, Git und zusätzlicher Worktree ohne Originzugriff;
+  Web-Bootstrap, `--no-mcp`-Abgrenzung, MCP-Initialisierung/Reads, lokaler
+  Mock-Modellaufruf und Stop/Resume belegt. Kein unveränderter Gesamt-PASS:
+  DNS war zunächst blockiert und Resume erforderte Diagnoseeingriffe.
+- Daraus korrigiert: QEMU/LIMADNS schreibt DNS `.3:53` auf einen dynamischen
+  Hostresolver-Port um. Die Regel berücksichtigt ausschließlich dieses
+  ursprüngliche DNS-Ziel; sonst bleiben Host-Port- und LAN-Sperren erhalten.
+  Die Base muss für die Firewalländerung neu provisioniert werden.
+  Editor-Stop-Ausgaben gehen bei Auth-Capture nach stderr, damit die
+  gesicherte Datei ausschließlich JSON enthält. V2-Resume hängt nicht mehr
+  an der nicht verwendeten alten Authdatei. Gezielte lokale Capture-/Baseline-
+  Proben einschließlich unverändertem V1-Fail-Closed PASS.
+- Noch offen: erneuter vollständiger Debian-Lauf des korrigierten Stands,
+  native Session-Exposition nach Resume und erfolgreicher Monitor-Dispatch
+  (bisher nur echte Takte, aber `CREATION_UNCERTAIN`/Registry-Lock-Probleme).
+  Der Mock benötigt eine korrekt konfigurierte native Modell-Kontextgröße;
+  `contextWindow:null` aus dem ersten Fixture ist kein Lastnachweis.
+  Ein echter macOS-VM-Lauf und LMStudio-Inference bleiben separat offen.
+
+## Umfang der nativen Brücke
+
+Die geprüften OCVM-Sitzungs-, MCP-, A2A- und OpenLive-Kernpfade verwenden
+OpenCode 2.0.32. Alte zusätzliche REST-Aktionen ohne implementierte native
+Zuordnung (etwa V1-Shell-/Command-/Todo-/Share-Routen) liefern explizit einen
+Fehler. Das ist keine vollständige V1-REST-API-Emulation. Native Web-/TUI-
+Funktionen verwenden unmittelbar V2. Eine allgemeine Funktionsparität oder
+Releasefreigabe ist mit den noch offenen Abnahmen nicht belegt.
 
 ## Offizielle versionsgebundene Quellen
 

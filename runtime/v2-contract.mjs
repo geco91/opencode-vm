@@ -12,6 +12,43 @@ export const legacyRules = rules => (rules ?? []).map(r => ({ permission: oldNam
 export const nativeRules = rules => (rules ?? []).map(r => ({ action: nativeAction(r.permission), resource: r.pattern, effect: r.action }));
 const unwrap = value => value?.data ?? value;
 const enc = encodeURIComponent;
+function legacyError(error) {
+  if (!error) return;
+  const name = { aborted: "MessageAbortedError", "provider.auth": "ProviderAuthError", "provider.content-filter": "ContentFilterError" }[error.type] ?? (error.type?.startsWith("provider.") ? "APIError" : "UnknownError");
+  return { name, data: { message: error.message, statusCode: error.status, responseBody: error.response?.body, metadata: { ocvmV2Type: error.type } } };
+}
+function nativeFile(part) {
+  if (typeof part.url !== "string" || !part.url) throw new Error("V2_FILE_URI_INVALID");
+  // The server accepts URI inputs and hydrates them into data/mime/source
+  // records. Its read schema differs from its prompt-admission schema.
+  return { uri: part.url, name: part.filename };
+}
+
+function advanceLineage(state, event) {
+  const seq = event.durable.seq;
+  state.inbox ??= {};
+  if (seq !== state.seq + 1) { state.gap = true; state.current = null; state.delivered = []; state.inbox = {}; }
+  if (event.type === "session.created" && seq === 0 || event.type === "session.execution.started") { state.gap = false; state.current = null; state.delivered = []; }
+  if (event.type === "session.inbox.enqueued") {
+    // Persist only the native item type, never its prompt/control payload.
+    state.inbox[event.data.inboxID] = event.data.item.type;
+    if (Object.keys(state.inbox).length > 10000) throw new Error("V2_CORRELATION_LIMIT");
+  }
+  if (event.type === "session.inbox.delivered") {
+    const id = event.data.inboxID, type = state.inbox[id];
+    if (type === "user") state.delivered.push(id);
+    else if (!["synthetic", "compaction", "move"].includes(type)) state.delivered.push(null);
+    delete state.inbox[id];
+  }
+  let parent;
+  if (event.type === "session.step.started") {
+    if (state.delivered.length) state.current = !state.gap && state.delivered.length === 1 ? state.delivered[0] : null;
+    state.delivered = [];
+    parent = [event.data.assistantMessageID, state.current];
+  }
+  state.seq = seq;
+  return parent;
+}
 
 export async function* events(response, maxBytes = Infinity) {
   if (!response.ok || !response.headers.get("content-type")?.includes("text/event-stream")) throw new Error("V2_EVENT_STREAM_INVALID");
@@ -44,10 +81,13 @@ export class V2Contract {
     if (!response.headers.get("content-type")?.includes("application/json")) throw new Error("V2_BACKEND_CONTRACT_INVALID");
     return response.json();
   }
-  async config(directory) {
+  async nativeConfig(directory) {
     const entries = unwrap(await this.api("GET", `/api/config?directory=${enc(directory)}`));
     if (!Array.isArray(entries)) throw new Error("V2_CONFIG_CONTRACT_INVALID");
-    const config = Object.assign({}, ...entries.filter(e => e.type === "document").map(e => e.info));
+    return Object.assign({}, ...entries.filter(e => e.type === "document").map(e => e.info));
+  }
+  async config(directory) {
+    const config = await this.nativeConfig(directory);
     if (config.model && typeof config.model === "object") config.model = `${config.model.providerID}/${config.model.model ?? config.model.id}`;
     return config;
   }
@@ -64,26 +104,24 @@ export class V2Contract {
       const stat = await lstat(file);
       if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 4 * 1024 * 1024 || stat.uid !== process.getuid() || stat.mode & 0o077) throw new Error("V2_LINEAGE_UNSAFE");
       const value = JSON.parse(await readFile(file, "utf8"));
-      if (value.schema !== 1 || value.sessionID !== id || !Number.isInteger(value.seq) || !Array.isArray(value.parents) || value.parents.length > 10000 || !Array.isArray(value.delivered)) throw new Error("V2_LINEAGE_INVALID");
+      if (![1, 2].includes(value.schema) || value.sessionID !== id || !Number.isInteger(value.seq) || !Array.isArray(value.parents) || value.parents.length > 10000 || !Array.isArray(value.delivered)) throw new Error("V2_LINEAGE_INVALID");
+      // Earlier experimental records did not distinguish control deliveries.
+      // Resume with unknown lineage rather than trust an untyped parent.
+      if (value.schema === 1) return { schema: 2, sessionID: id, seq: value.seq, parents: [], delivered: [], current: null, gap: true, inbox: {} };
       return value;
     } catch (error) { if (error.code !== "ENOENT") throw error; }
-    return { schema: 1, sessionID: id, seq: -1, parents: [], delivered: [], current: null, gap: true };
+    return { schema: 2, sessionID: id, seq: -1, parents: [], delivered: [], current: null, gap: true, inbox: {} };
   }
   async observe(event) {
     const id = event.data?.sessionID, seq = event.durable?.seq;
     if (!id || !Number.isInteger(seq)) return;
     const state = await this.loadLineage(id);
     if (seq <= state.seq) return;
-    if (seq !== state.seq + 1) { state.gap = true; state.current = null; state.delivered = []; }
-    if (event.type === "session.created" && seq === 0 || event.type === "session.execution.started") { state.gap = false; state.current = null; state.delivered = []; }
-    if (event.type === "session.inbox.delivered") state.delivered.push(event.data.inboxID);
-    if (event.type === "session.step.started") {
-      if (state.delivered.length) state.current = !state.gap && state.delivered.length === 1 ? state.delivered[0] : null;
-      state.delivered = [];
-      state.parents.push([event.data.assistantMessageID, state.current]);
+    const parent = advanceLineage(state, event);
+    if (parent) {
+      state.parents.push(parent);
       if (state.parents.length > 10000) throw new Error("V2_CORRELATION_LIMIT");
     }
-    state.seq = seq;
     const file = this.lineageFile(id);
     await mkdir(dirname(file), { recursive: true, mode: 0o700 });
     const temp = `${file}.${process.pid}.tmp`;
@@ -94,7 +132,7 @@ export class V2Contract {
     // from text, timestamps or nearby messages. Multiple deliveries at a step
     // are ambiguous: omit parentID and let the existing receipt logic hold.
     let cache = this.lineage.get(sessionID);
-    if (!cache) { if (this.lineage.size >= 128) this.lineage.delete(this.lineage.keys().next().value); cache = { parents: new Map(), delivered: [], current: undefined, after: undefined }; this.lineage.set(sessionID, cache); }
+    if (!cache) { if (this.lineage.size >= 128) this.lineage.delete(this.lineage.keys().next().value); cache = { parents: new Map(), delivered: [], current: null, seq: -1, gap: true, after: undefined }; this.lineage.set(sessionID, cache); }
     // Native replay is optional in product V2. Explicit zero includes the
     // delivery events when the server retains them; otherwise use OCVM's
     // exact observed event records below.
@@ -107,12 +145,9 @@ export class V2Contract {
     for await (const event of events(response, 32 * 1024 * 1024)) {
       if (!event.durable) continue;
       if (cache.after !== undefined && event.durable.seq <= cache.after) continue;
-      const data = event.data;
-      if (event.type === "session.inbox.delivered") cache.delivered.push(data.inboxID);
-      if (event.type === "session.step.started") {
-        if (cache.delivered.length) cache.current = cache.delivered.length === 1 ? cache.delivered[0] : undefined;
-        cache.delivered = [];
-        cache.parents.set(data.assistantMessageID, cache.current);
+      const parent = advanceLineage(cache, event);
+      if (parent) {
+        cache.parents.set(...parent);
         if (cache.parents.size > 10000) throw new Error("V2_CORRELATION_LIMIT");
       }
       cache.after = event.durable.seq;
@@ -127,8 +162,8 @@ export class V2Contract {
   }
   message(sessionID, item, parents) {
     const common = { id: item.id, sessionID, role: item.type, time: item.time };
-    if (item.type === "user") return { info: { ...common, agent: item.agent, model: item.model }, parts: [{ type: "text", id: `${item.id}_text`, sessionID, messageID: item.id, text: item.text ?? "" }, ...(item.files ?? []).map((f, i) => ({ type: "file", id: `${item.id}_file${i}`, sessionID, messageID: item.id, url: f.uri, filename: f.name, mime: f.mime }))] };
-    const info = { ...common, parentID: parents.get(item.id), agent: item.agent, modelID: item.model?.id, providerID: item.model?.providerID, variant: item.model?.variant, finish: item.finish, error: item.error ? { name: item.error.type ?? "UnknownError", data: { message: item.error.message } } : undefined, tokens: item.tokens, cost: item.cost };
+    if (item.type === "user") return { info: { ...common, agent: item.agent, model: item.model }, parts: [{ type: "text", id: `${item.id}_text`, sessionID, messageID: item.id, text: item.text ?? "" }, ...(item.files ?? []).map((f, i) => ({ type: "file", id: `${item.id}_file${i}`, sessionID, messageID: item.id, url: typeof f.data === "string" ? `data:${f.mime};base64,${f.data}` : f.uri, filename: f.name, mime: f.mime }))] };
+    const info = { ...common, parentID: parents.get(item.id), agent: item.agent, modelID: item.model?.id, providerID: item.model?.providerID, variant: item.model?.variant, finish: item.finish, error: legacyError(item.error), tokens: item.tokens, cost: item.cost };
     const parts = (item.content ?? []).map((p, index) => {
       const base = { ...p, id: p.id ?? `${item.id}_${index}`, sessionID, messageID: item.id };
       if (p.type !== "tool") return base;
@@ -145,21 +180,27 @@ export class V2Contract {
     if (path === "/config" && method === "PATCH") return this.api(method, `/api/config?${q}`, body);
     if (path === "/agent") {
       await this.api("GET", `/api/model/default?${q}`);
-      const result = await this.api("GET", `/api/agent?${q}`);
-      return result.data.map(a => ({ ...a, name: a.id, permission: legacyRules(a.permissions), model: a.model ? { providerID: a.model.providerID, modelID: a.model.id } : undefined, variant: a.model?.variant }));
+      const [result, config] = await Promise.all([this.api("GET", `/api/agent?${q}`), this.nativeConfig(directory)]);
+      return result.data.map(a => {
+        const model = a.model ?? (config.model && typeof config.model === "object" ? { providerID: config.model.providerID, id: config.model.model, variant: config.model.variant } : undefined);
+        return { ...a, name: a.id, permission: legacyRules(a.permissions), model: model ? { providerID: model.providerID, modelID: model.id } : undefined, variant: model?.variant };
+      });
     }
     if (path === "/provider" || path === "/config/providers") {
       // model.default awaits plugin activation; provider.list alone can expose
       // the pre-configuration catalog during a cold location startup.
       const def = await this.api("GET", `/api/model/default?${q}`);
       const [providers, models] = await Promise.all([this.api("GET", `/api/provider?${q}`), this.api("GET", `/api/model?${q}`)]);
-      const all = providers.data.map(p => ({ ...p, models: Object.fromEntries(models.data.filter(m => m.providerID === p.id && m.enabled).map(m => [m.id, { ...m, api: { npm: p.package }, variants: Object.fromEntries((m.variants ?? []).map(v => [v.id, v])) }])) }));
+      const all = providers.data.map(p => ({ ...p, models: Object.fromEntries(models.data.filter(m => m.providerID === p.id && m.enabled).map(m => {
+        const capabilities = m.capabilities ?? {}, modalities = kind => Object.fromEntries(["text", "image", "audio", "video", "pdf"].map(type => [type, capabilities[kind]?.includes(type) === true]));
+        return [m.id, { ...m, capabilities: { temperature: capabilities.temperature === true, reasoning: capabilities.reasoning?.supported === true, attachment: capabilities.input?.some(type => type !== "text") === true, toolcall: capabilities.tools === true, input: modalities("input"), output: modalities("output") }, api: { npm: p.package }, variants: Object.fromEntries((m.variants ?? []).map(v => [v.id, v])) }];
+      })) }));
       const model = unwrap(def);
       return { all, connected: all.filter(p => p.activation !== "disabled" && Object.keys(p.models).length).map(p => p.id), default: model?.providerID ? { [model.providerID]: model.id } : {} };
     }
     if (path === "/project/current" || path === "/path") {
       const location = unwrap(await this.api("GET", `/api/location?${q}`));
-      return path === "/path" ? { directory: location.directory, worktree: location.project.directory } : { ...location.project, worktree: location.project.directory };
+      return path === "/path" ? { directory: location.directory, worktree: location.project.directory, config: join(process.env.XDG_CONFIG_HOME ?? join(process.env.HOME, ".config"), "opencode") } : { ...location.project, worktree: location.project.directory };
     }
     if (/^\/project\/[^/]+\/directories$/.test(path)) return [{ directory }];
     if (path === "/session/status") {
@@ -196,7 +237,7 @@ export class V2Contract {
       if (!(requested > 0) || requested !== Infinity && !Number.isInteger(requested)) throw new Error("V2_SESSION_LIMIT_INVALID");
       let cursor;
       for (let page = 0; page <= 20; page++) {
-        const result = await this.api("GET", `/api/session?${q}&limit=${Math.min(requested, 100)}&order=desc${cursor ? `&cursor=${enc(cursor)}` : ""}`);
+        const result = await this.api("GET", `/api/session?${q}&limit=${Math.min(requested, 100)}${cursor ? `&cursor=${enc(cursor)}` : "&order=desc"}`);
         if (!result.data.length) return items;
         items.push(...result.data.map(s => this.session(s)).filter(s => !s.time.archived && (!query.roots || !s.parentID)));
         if (items.length >= requested) return items.slice(0, requested);
@@ -219,12 +260,17 @@ export class V2Contract {
       }
       if (tail === "abort") return this.api("POST", `${route}/interrupt`);
       if (tail === "prompt_async" || tail === "message" && method === "POST") {
-        if (body.agent) await this.api("POST", `${route}/agent`, { agent: body.agent });
-        if (body.model) await this.api("POST", `${route}/model`, { model: { providerID: body.model.providerID, id: body.model.modelID ?? body.model.id, variant: body.variant } });
         const parts = body.parts ?? [];
         if (parts.some(p => !["text", "file"].includes(p.type))) throw new Error("V2_PROMPT_PART_UNSUPPORTED");
+        const files = parts.filter(p => p.type === "file").map(nativeFile);
+        const current = unwrap(await this.api("GET", route));
+        if (body.agent && body.agent !== current.agent) await this.api("POST", `${route}/agent`, { agent: body.agent });
+        if (body.model) {
+          const model = { providerID: body.model.providerID, id: body.model.modelID ?? body.model.id, variant: body.variant };
+          if (model.providerID !== current.model?.providerID || model.id !== current.model?.id || (model.variant ?? "default") !== (current.model?.variant ?? "default")) await this.api("POST", `${route}/model`, { model });
+        }
         const messageID = body.messageID ?? `msg_${randomUUID().replaceAll("-", "")}`;
-        const admitted = await this.api("POST", `${route}/prompt`, { id: messageID, text: parts.filter(p => p.type === "text").map(p => p.text).join("\n"), files: parts.filter(p => p.type === "file").map(p => ({ uri: p.url, name: p.filename, mime: p.mime })), metadata: { ...(body.system ? { "ocvm.system": body.system } : {}), ...(body.tools ? { "ocvm.tools": body.tools } : {}) }, delivery: "queue" });
+        const admitted = await this.api("POST", `${route}/prompt`, { id: messageID, text: parts.filter(p => p.type === "text").map(p => p.text).join("\n"), files, metadata: { ...(body.system ? { "ocvm.system": body.system } : {}), ...(body.tools ? { "ocvm.tools": body.tools } : {}) }, delivery: "queue" });
         if (tail === "prompt_async") return admitted;
         // V1's synchronous prompt is used by OpenLive and A2A. Admission is
         // performed exactly once; disconnects never abort or resend the turn.
@@ -241,11 +287,28 @@ export class V2Contract {
       }
       if (tail === "message" && method === "GET") {
         const limit = Math.min(Number(query.limit) || 100, 100);
-        const result = await this.api("GET", `${route}/message?limit=${limit}&order=desc${query.before ? `&cursor=${enc(query.before)}` : ""}`);
+        const items = [], seen = new Set(); let cursor = query.before, next;
+        for (let page = 0; page < 50; page++) {
+          const result = await this.api("GET", `${route}/message?limit=${limit - items.length}${cursor ? `&cursor=${enc(cursor)}` : "&order=desc"}`);
+          items.push(...result.data.filter(m => ["user", "assistant"].includes(m.type)));
+          next = result.cursor?.next ?? undefined;
+          if (items.length >= limit || !result.data.length || !next) break;
+          if (seen.has(next)) throw new Error("V2_MESSAGE_CURSOR_REPEATED");
+          seen.add(next); cursor = next;
+          if (page === 49) throw new Error("V2_HISTORY_CONTROL_LIMIT");
+        }
         const parents = await this.parents(id);
-        return { items: result.data.filter(m => ["user", "assistant"].includes(m.type)).map(m => this.message(id, m, parents)).reverse(), next: result.cursor?.next };
+        return { items: items.map(m => this.message(id, m, parents)).reverse(), next };
       }
-      if (tail?.startsWith("message/")) return this.message(id, unwrap(await this.api("GET", `${route}/${tail}`)), await this.parents(id));
+      if (tail?.startsWith("message/")) {
+        try { return this.message(id, unwrap(await this.api("GET", `${route}/${tail}`)), await this.parents(id)); }
+        catch (error) {
+          if (error.status !== 404) throw error;
+          const pending = unwrap(await this.api("GET", `${route}/inbox`)).find(item => item.id === tail.split("/")[1] && item.type === "user");
+          if (!pending) throw error;
+          return this.message(id, { ...pending.payload, id: pending.id, time: pending.time, type: "user" }, new Map());
+        }
+      }
     }
     if (/^\/mcp\/[^/]+\/connect$/.test(path)) return this.api(method, path.replace("/mcp/", "/api/experimental/mcp/"), body);
     if (path === "/mcp") return this.api(method, "/api/experimental/mcp", body);

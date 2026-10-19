@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { createServer, request as httpRequest } from "node:http";
-import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile, rename, lstat } from "node:fs/promises";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdir, readFile, writeFile, rename, lstat, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { timingSafeEqual, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
@@ -12,6 +12,10 @@ const args = process.argv.slice(2);
 const connectionFile = `/tmp/ocvm-v2-server-${process.getuid()}.json`;
 if (["upgrade", "update", "uninstall", "service"].includes(args[0])) {
   throw new Error("OCVM owns the pinned V2 runtime; use opencode-vm init to rebuild it.");
+} else if (args.includes("--version") || args.includes("-v")) {
+  const version = spawnSync(native, ["--version"], { encoding: "utf8", timeout: 5000, maxBuffer: 4096 });
+  if (version.status !== 0 || ![PRODUCT_VERSION, `opencode v${PRODUCT_VERSION}`].includes(version.stdout.trim())) throw new Error("V2_VERSION_MISMATCH: rebuild the pinned OCVM base");
+  process.stdout.write(`${PRODUCT_VERSION}\n`);
 } else if (args[0] === "web") {
   await serve();
 } else if (args[0] === "attach" || args.includes("--help") || args.includes("--version") || args.includes("-h") || args.includes("-v")) {
@@ -30,7 +34,7 @@ if (["upgrade", "update", "uninstall", "service"].includes(args[0])) {
     if ((await api.api("GET", "/api/info")).pid === saved.pid) connection = saved;
   } catch (error) { if (!["ENOENT", "ECONNREFUSED"].includes(error.code) && error.message.startsWith("V2_CONNECTION_")) throw error; }
   if (connection) {
-    const child = spawn(native, ["--server", connection.url, ...args], { stdio: "inherit", env: { ...process.env, OPENCODE_SERVER_PASSWORD: connection.password } });
+    const child = spawn(native, [...args, "--server", connection.url], { stdio: "inherit", env: { ...process.env, OPENCODE_SERVER_PASSWORD: connection.password } });
     child.on("error", () => { process.exitCode = 1; }); child.on("exit", code => { process.exitCode = code ?? 1; });
   } else await serve(args);
 }
@@ -64,7 +68,12 @@ async function serve(clientArgs) {
   if (!ready) { child.kill("SIGTERM"); throw new Error("V2_STARTUP_FAILED"); }
   try { const stat = await lstat(connectionFile); if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid() || stat.mode & 0o077) throw new Error("V2_CONNECTION_UNSAFE"); } catch (error) { if (error.code !== "ENOENT") throw error; }
   const connection = { url: baseUrl, pid: child.pid, password: nativePassword, project: process.cwd() };
-  await writeFile(connectionFile, JSON.stringify(connection), { mode: 0o600 });
+  const writeConnection = async () => {
+    const temporary = `${connectionFile}.${process.pid}.${randomBytes(8).toString("hex")}`;
+    try { await writeFile(temporary, JSON.stringify(connection), { mode: 0o600, flag: "wx" }); await rename(temporary, connectionFile); }
+    finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
+  };
+  await writeConnection();
   const credentials = join(process.env.XDG_DATA_HOME ?? join(process.env.HOME, ".local/share"), "opencode/credentials-v2.json");
   const snapshot = async () => {
     const value = await contract.api("GET", "/api/credential");
@@ -151,6 +160,7 @@ async function serve(clientArgs) {
         if (bytes) body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       }
       if (url.pathname.startsWith("/api/") || url.pathname === "/" || !/^\/(global|session|project|provider|path|config|agent|permission|question|mcp|experimental)(\/|$)/.test(url.pathname)) {
+        if (marked && url.pathname === "/api/session" && url.searchParams.has("cursor")) url.searchParams.delete("order");
         let path = url.pathname + url.search;
         if (marked) path = path.replace(/(\/api\/session\/[^/]+)\/question(?=\?|$)/, "$1/form").replace(/^\/api\/question\/request/, "/api/form");
         const response = await contract.raw(req.method, path, body, abort.signal);
@@ -189,7 +199,7 @@ async function serve(clientArgs) {
   });
   await new Promise((yes, no) => { server.once("error", no); server.listen(port, "127.0.0.1", yes); });
   connection.bridgeUrl = `http://127.0.0.1:${server.address().port}`;
-  await writeFile(connectionFile, JSON.stringify(connection), { mode: 0o600 });
+  await writeConnection();
   const shutdown = async () => {
     if (stopping) return; stopping = true;
     try { await save(); } catch { process.stderr.write("[v2] Credential checkpoint failed; retain the session data for recovery.\n"); process.exitCode = 1; }
@@ -197,7 +207,7 @@ async function serve(clientArgs) {
   };
   process.on("SIGTERM", shutdown); process.on("SIGINT", shutdown);
   if (clientArgs) {
-    const client = spawn(native, ["--server", baseUrl, ...clientArgs], { stdio: "inherit", env: { ...process.env, OPENCODE_SERVER_PASSWORD: nativePassword } });
+    const client = spawn(native, [...clientArgs, "--server", baseUrl], { stdio: "inherit", env: { ...process.env, OPENCODE_SERVER_PASSWORD: nativePassword } });
     client.on("error", () => { process.exitCode = 1; void shutdown(); });
     client.on("exit", code => { process.exitCode = code ?? 1; void shutdown(); });
   }

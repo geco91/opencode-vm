@@ -304,7 +304,7 @@ function providerErrorDetail(data: Record<string, unknown> | undefined): ErrorDe
       ...sourceRetryable,
     };
   }
-  if (status === 408 || status === 504) {
+  if (status === 408 || status === 504 || metadata?.ocvmV2Type === "provider.timeout") {
     return {
       ...safeErrorDetail(
         "provider_timeout",
@@ -314,7 +314,7 @@ function providerErrorDetail(data: Record<string, unknown> | undefined): ErrorDe
       ...sourceRetryable,
     };
   }
-  if (/insufficient[_ ]quota|quota[ _-]?(exceeded|exhausted)|insufficient[ _](balance|credit|funds)|exceeded your current quota|budget[ _](exceeded|limit)/iu.test(raw)) {
+  if (metadata?.ocvmV2Type === "provider.quota" || /insufficient[_ ]quota|quota[ _-]?(exceeded|exhausted)|insufficient[ _](balance|credit|funds)|exceeded your current quota|budget[ _](exceeded|limit)/iu.test(raw)) {
     return {
       ...safeErrorDetail(
         "provider_quota",

@@ -3,6 +3,8 @@ import { V2Contract, events } from "./v2-contract.mjs";
 import { protocol, questionInResponse, responseUsage, terminalResponse, permissionBlocker } from "./managed-core.mjs";
 import { relative, sep } from "node:path";
 import { Schema } from "effect";
+import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 
 // Product V2 plugin lifecycle. The established policy owner and Unix socket
 // stay shared by MCP, OpenLive and A2A; hooks use native V2 session identity.
@@ -31,6 +33,24 @@ export default {
         }
       })() }) },
     } });
+    // V2's HTTP hook can replace the Request, but cannot return a Response.
+    // Route an already-blocked primary step to an in-process one-use response
+    // endpoint, so a permission handback never sends another provider request.
+    const tickets = new Map();
+    const gate = createServer(async (req, res) => {
+      try {
+      const ticket = tickets.get(req.headers["x-ocvm-completion-ticket"]);
+      tickets.delete(req.headers["x-ocvm-completion-ticket"]);
+      if (!ticket || ticket.expires < Date.now() || req.method !== "POST") { res.writeHead(403); res.end(); return; }
+      const response = terminalResponse(ticket.report, ticket.protocol, ticket.streaming);
+      res.writeHead(response.status, Object.fromEntries(response.headers));
+      for await (const chunk of response.body) res.write(chunk);
+      res.end();
+      } catch { res.destroy(); }
+    });
+    try { await new Promise((yes, no) => { gate.once("error", no); gate.listen(0, "127.0.0.1", yes); }); }
+    catch (error) { await hooks.dispose(); throw error; }
+    const gateURL = `http://127.0.0.1:${gate.address().port}/completion`;
     const disposers = [];
     const on = (domain, name, run) => disposers.push(domain.hook(name, run));
     const turn = id => [...fetchState.turns.values()].findLast(t => t.sessionID === id);
@@ -70,6 +90,13 @@ export default {
       state.protocol = protocol(body, event.request.url, state.family);
       state.streaming = body.stream !== false && !event.request.url.includes(":generateContent");
       if (!state.protocol) throw new Error("MANAGED_COMPLETION_PROTOCOL_UNSUPPORTED");
+      if (state.report) {
+        for (const [key, ticket] of tickets) if (ticket.expires < Date.now()) tickets.delete(key);
+        if (tickets.size >= 128) throw new Error("MANAGED_COMPLETION_TICKET_LIMIT");
+        const key = randomBytes(32).toString("base64url");
+        tickets.set(key, { report: state.report, protocol: state.protocol, streaming: state.streaming, expires: Date.now() + 10000 });
+        event.request = new Request(gateURL, { method: "POST", headers: { "x-ocvm-completion-ticket": key }, body: "{}" });
+      }
     });
     on(ctx.session, "http.response", async event => {
       if (event.kind !== "primary" || !await policy.isManaged(event.sessionID)) return;
@@ -101,7 +128,9 @@ export default {
     on(ctx.shell, "create.before", async event => {
       if (await policy.deniedWrite(event.command, event.cwd)) throw new Error("REMOTE_WRITE_DENIED: publishing is operator-only");
     });
-    const registrations = await Promise.all(disposers);
-    return async () => { for (const registration of registrations.reverse()) await registration.dispose(); await hooks.dispose(); };
+    let registrations;
+    try { registrations = await Promise.all(disposers); }
+    catch (error) { gate.closeAllConnections(); await new Promise(resolve => gate.close(resolve)); await hooks.dispose(); throw error; }
+    return async () => { for (const registration of registrations.reverse()) await registration.dispose(); gate.closeAllConnections(); await new Promise(resolve => gate.close(resolve)); await hooks.dispose(); };
   },
 };
