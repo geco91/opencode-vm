@@ -235,6 +235,17 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   sie nicht mehr. Native Schreiber- und Ownership-Prüfungen bleiben erhalten.
   Der reale erneute Stop/Attach-Nachweis mit diesem Fix steht noch aus.
   Ein echter macOS-VM-Lauf und LMStudio-Inference bleiben separat offen.
+- Provider-Schreibbefehle verwenden im Experiment jetzt native
+  `providers`/`package`/`settings`/`capabilities` statt V1-Config und `auth.json`.
+  Sie bearbeiten die vorhandene Projektkonfiguration, sonst die isolierte
+  Vorlage für neue Projekte; ein laufender Gast behält seine Konfiguration.
+  JSON und Sicherungen bleiben privat (0600). Add/Dry-run, Modellkatalog-Sync,
+  Erhalt expliziter Capabilities und Limits sowie Entfernen sind gegen den
+  tatsächlichen npm-Einstieg von OpenCode 2.0.32 geprüft. Fehlerhafte Kataloge
+  lassen die Config unverändert. `subscription rm` entfernt native OAuth-
+  Konten der Integration in der laufenden Projektsitzung und prüft den
+  dauerhaften Logout; andere Keys bleiben erhalten. Dieser echte API-Smoke
+  verwendet synthetische Credentials und keine Inference-Anfragen.
 
 ## Umfang der nativen Brücke
 

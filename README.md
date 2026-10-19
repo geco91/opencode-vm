@@ -66,6 +66,10 @@ OCVM_EXPERIMENT=v2 bash ./opencode-vm.sh web --no-mcp
 Small hosts can set `OCVM_BASE_CPUS=2 OCVM_BASE_MEMORY_GIB=2` for `init`.
 V2 global configuration sync remains disabled; configure providers inside the
 isolated project. Credentials are checkpointed separately from fresh history.
+V2 `provider custom` commands edit the saved project config when present,
+otherwise the V2 template; changes apply to the next fresh project start.
+V2 `provider subscription rm` logs out the integration's OAuth accounts in
+the current running project web session and verifies the saved checkpoint.
 
 ## Quick Start
 

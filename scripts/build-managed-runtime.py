@@ -9,7 +9,7 @@ import tarfile
 import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
-NAMES = ("managed-core.mjs", "managed-policy.mjs", "v2-contract.mjs", "v2-policy.mjs", "v2-launch.mjs", "v2-credentials.py", "a2a-managed.py", "guest-state.py")
+NAMES = ("managed-core.mjs", "managed-policy.mjs", "v2-contract.mjs", "v2-policy.mjs", "v2-launch.mjs", "v2-credentials.py", "v2-provider.py", "a2a-managed.py", "guest-state.py")
 buffer = io.BytesIO()
 with tarfile.open(fileobj=buffer, mode="w", format=tarfile.USTAR_FORMAT) as archive:
     for name in NAMES:
