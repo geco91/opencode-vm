@@ -190,6 +190,22 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
 - Bash 3.2.57 auf Linux aus offiziellen GNU-Quellen gebaut: vollständige
   Skriptsyntax und Versionsaufruf in Standard-/V2-Modus PASS. Dies prüft die
   Shell-Kompatibilität, nicht VZ/virtiofs oder die macOS-VM-Laufzeit.
+- Native Fehlerproben am 19. Oktober PASS: eigener HTTP401 wird exakt als
+  `provider_auth`, HTTP429 mit ausdrücklichem `insufficient_quota` als
+  `provider_quota` erkannt; Rohfehlertexte werden redigiert. Header-/Daten-
+  Timeouts des nativen HTTP-Clients ergeben `provider_timeout`. Produkt2.0.32
+  verliert beim Speichern seinen internen `Timeout`-Code; die Brücke erkennt
+  ausschließlich die zwei nachgewiesenen festen Erzeugertexte zusammen mit
+  dem nativen Fehlertyp `provider.transport`, ohne Status oder Dauer zu
+  erfinden. Ein gewöhnlicher Verbindungsabbruch bleibt `provider_error`
+  (für diese terminale Gegenprobe native Wiederholungen nur im temporären
+  Fixture begrenzt). Native Wiederholungen vor einem Endergebnis bleiben
+  Arbeitszustände; bloße Aktivität beweist keinen Abschluss.
+- CLI-Start auch über die tatsächlich mit npm installierte `.bin/opencode`
+  geprüft: Postinstall setzt einen nativen ELF-Einstieg ein. Server-PID,
+  CLI-Wiederverwendung, Parent-Death, Credential-Restore/Logout und geschützte
+  Ablehnung beschädigter Sicherungen funktionieren ebenso wie beim direkten
+  nativen Binary. `--version` erzeugt keine native Datenbank.
 - Noch offen: erneuter vollständiger Debian-Lauf des korrigierten Stands,
   native Session-Exposition nach Resume und erfolgreicher Monitor-Dispatch
   (bisher nur echte Takte, aber `CREATION_UNCERTAIN`/Registry-Lock-Probleme).

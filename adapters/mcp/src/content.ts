@@ -304,7 +304,13 @@ function providerErrorDetail(data: Record<string, unknown> | undefined): ErrorDe
       ...sourceRetryable,
     };
   }
-  if (status === 408 || status === 504 || metadata?.ocvmV2Type === "provider.timeout") {
+  // Product 2.0.32's HTTP client creates code=Timeout for these exact
+  // reasons, but its stored provider.transport error drops that code.
+  // Match only the pinned producer literals, never arbitrary error text.
+  const nativeTransportTimeout = metadata?.ocvmV2Type === "provider.transport" &&
+    (data?.message === "Timed out waiting for response headers" ||
+      data?.message === "Timed out waiting for response data");
+  if (status === 408 || status === 504 || metadata?.ocvmV2Type === "provider.timeout" || nativeTransportTimeout) {
     return {
       ...safeErrorDetail(
         "provider_timeout",
