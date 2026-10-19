@@ -248,6 +248,17 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   Konten der Integration in der laufenden Projektsitzung und prüft den
   dauerhaften Logout; andere Keys bleiben erhalten. Dieser echte API-Smoke
   verwendet synthetische Credentials und keine Inference-Anfragen.
+- Monitor und Dashboard übernehmen jetzt ebenfalls den gemeinsamen
+  Adapter-Header und die projektbezogene Server-Authentifizierung. Der
+  bisherige eigene Monitor-Client authentifizierte sich nicht; unmarkierte
+  Clients erhielten außerdem keine Projektion der OCVM-Archivmetadaten.
+  Gegen die echte V2-Runtime reproduziert und korrigiert: Zugriff bei
+  aktivierter Authentifizierung funktioniert, archivierte Sitzungen bleiben
+  für beide Clients verborgen. Ohne Markierung fehlte auch die native
+  Question-/Form-Zuordnung: Pending-Input blieb unbekannt und verhinderte
+  neue Aufträge. Mit dem gemeinsamen Client ist die Abdeckung wieder
+  `session+descendants` (echte API-Gegenprobe). Die eigene Read-only-Grenze des Dashboards
+  bleibt erhalten.
 
 ## Umfang der nativen Brücke
 

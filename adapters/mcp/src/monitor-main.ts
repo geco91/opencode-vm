@@ -1,6 +1,5 @@
 import { lstat, readFile, realpath, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createOpencodeClient } from "@opencode-ai/sdk/v2";
 import { OpenCodeGateway } from "./opencode.js";
 import { ProjectBoardService } from "./taskboard.js";
 import { readPolicy, routingRegime } from "./agent-control.js";
@@ -62,13 +61,12 @@ async function main(): Promise<void> {
     // the unit runs with the same session credential as the other services.
     process.env.OPENCODE_SERVER_USERNAME = value.auth.username;
     process.env.OPENCODE_SERVER_PASSWORD = value.auth.password;
+  } else {
+    delete process.env.OPENCODE_SERVER_USERNAME;
+    delete process.env.OPENCODE_SERVER_PASSWORD;
   }
-  const client = createOpencodeClient({
-    baseUrl: runtime.backendUrl,
-    directory: runtime.project,
-    throwOnError: true,
-  });
-  const gateway = new OpenCodeGateway(runtime, client, 3000);
+  // The gateway supplies the shared adapter projection and authentication.
+  const gateway = new OpenCodeGateway(runtime, undefined, 3000);
   const board: MonitorBoardLike | undefined =
     runtime.taskboardUrl && runtime.taskboardMetadataFile
       ? (new ProjectBoardService({
