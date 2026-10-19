@@ -40,6 +40,10 @@ if (["upgrade", "update", "uninstall", "service"].includes(args[0])) {
 }
 
 async function serve(clientArgs) {
+  const dataDirectory = join(process.env.XDG_DATA_HOME ?? join(process.env.HOME, ".local/share"), "opencode");
+  let hadDatabase = true;
+  try { await lstat(join(dataDirectory, "opencode.db")); }
+  catch (error) { if (error.code !== "ENOENT") throw error; hadDatabase = false; }
   const portIndex = args.indexOf("--port"), port = clientArgs ? 0 : portIndex < 0 ? 4096 : Number(args[portIndex + 1]);
   if (!Number.isInteger(port) || port < (clientArgs ? 0 : 1) || port > 65535) throw new Error("V2_PORT_INVALID");
   const reservation = createServer();
@@ -74,7 +78,7 @@ async function serve(clientArgs) {
     finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
   };
   await writeConnection();
-  const credentials = join(process.env.XDG_DATA_HOME ?? join(process.env.HOME, ".local/share"), "opencode/credentials-v2.json");
+  const credentials = join(dataDirectory, "credentials-v2.json");
   const snapshot = async () => {
     const value = await contract.api("GET", "/api/credential");
     const encoded = JSON.stringify({ version: PRODUCT_VERSION, data: value.data });
@@ -87,14 +91,19 @@ async function serve(clientArgs) {
       finally { await unlink(temporary).catch(error => { if (error.code !== "ENOENT") throw error; }); }
     }
   };
+  for (const source of new Set([process.env.OCVM_V2_CREDENTIAL_SNAPSHOT, credentials].filter(Boolean))) {
   try {
-    const stat = await lstat(credentials);
+    const stat = await lstat(source);
     if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 1024 * 1024 || stat.mode & 0o077) throw new Error("V2_CREDENTIAL_SNAPSHOT_UNSAFE");
-    const saved = JSON.parse(await readFile(credentials, "utf8"));
+    const saved = JSON.parse(await readFile(source, "utf8"));
     if (saved.version !== PRODUCT_VERSION || !Array.isArray(saved.data)) throw new Error("V2_CREDENTIAL_SNAPSHOT_INVALID");
     const present = await contract.api("GET", "/api/credential");
-    if (present.data.length === 0) for (const credential of saved.data) await contract.api("POST", "/api/credential", { ...credential, activate: credential.active });
-  } catch (error) { if (error.code !== "ENOENT") { child.kill("SIGTERM"); throw error; } }
+    // An existing empty DB may record an explicit logout whose checkpoint
+    // was interrupted. Restore only when starting a genuinely fresh DB.
+    if (!hadDatabase && present.data.length === 0) for (const credential of saved.data) await contract.api("POST", "/api/credential", { ...credential, activate: credential.active });
+    break;
+  } catch (error) { if (error.code !== "ENOENT") { child.kill("SIGTERM"); throw new Error("V2_CREDENTIAL_RESTORE_FAILED"); } }
+  }
   let snapshotQueue = Promise.resolve();
   const save = () => { snapshotQueue = snapshotQueue.then(snapshot); return snapshotQueue; };
   await save();

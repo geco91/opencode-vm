@@ -104,7 +104,11 @@ Bei gestoppter V2-VM ist dies nur mit nachgewiesen leerer Legacy-Baseline
 zulässig und benötigt zusätzlich einen gültigen privaten nativen Snapshot.
 V1 behält seine bisherige Snapshot-Sperre. Native Credential-Events schreiben
 die Sicherung unmittelbar sowohl gastlokal als auch in den dauerhaften
-Projektshare (0600), nicht erst beim sauberen Ende.
+Projektshare (0600), nicht erst beim sauberen Ende. Wiederherstellung erfolgt
+nur bei tatsächlich neuer nativer Datenbank; eine bestehende leere Datenbank
+bewahrt ein ausdrückliches Logout auch gegenüber einem veralteten Snapshot.
+Der dauerhafte Snapshot wird vor einer gastlokalen Kopie gelesen, sodass
+ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
 
 ## Verifizierter Stand
 
@@ -178,7 +182,11 @@ Projektshare (0600), nicht erst beim sauberen Ende.
   anlegen, unmittelbaren dauerhaften Snapshot prüfen, Supervisor hart beenden,
   native DB vollständig verwerfen, nur den Snapshot übernehmen, Key in der
   frischen DB wiederfinden und Logout unmittelbar dauerhaft sichern.
-  Stopped-Resume ohne gültigen privaten Snapshot bleibt gesperrt.
+  Stopped-Resume ohne gültigen privaten Snapshot bleibt gesperrt. Ein weiterer
+  echter API-Smoke bestätigt: bestehendes natives Logout gewinnt auch bei
+  absichtlich veralteten lokalen und dauerhaften Sicherungen; frische DBs
+  restaurieren direkt aus dem Share ohne manuellen Gast-Seed. Eine beschädigte
+  Sicherung stoppt den Start mit einem inhaltsfreien Fehlercode (geprüft).
 - Bash 3.2.57 auf Linux aus offiziellen GNU-Quellen gebaut: vollständige
   Skriptsyntax und Versionsaufruf in Standard-/V2-Modus PASS. Dies prüft die
   Shell-Kompatibilität, nicht VZ/virtiofs oder die macOS-VM-Laufzeit.
