@@ -138,7 +138,7 @@ def change(path, backup_root, operation, args, config):
     original = copy.deepcopy(config)
     providers = config.setdefault("providers", {})
     if operation == "list":
-        print("[provider] V2 configured endpoints (credential values hidden):")
+        print("[provider] V2 template endpoints for new projects (credential values hidden):")
         for identifier, provider in sorted(providers.items()):
             print(f"  {identifier}: {len(provider.get('models', {}))} models; key={'yes' if provider.get('settings', {}).get('apiKey') else 'no'}")
         print(f"[provider] Config: {path}")
@@ -205,7 +205,7 @@ def change(path, backup_root, operation, args, config):
         save(path, config, backup_root)
         if not args.quiet and operation != "_autosync":
             print(f"[provider] Native V2 provider configuration saved: {path}")
-            print("[provider] The next fresh project start uses this configuration; an active session keeps its current configuration.")
+            print("[provider] New project configs inherit this template. Configure existing projects in their native Web UI.")
 
 
 if __name__ == "__main__":
