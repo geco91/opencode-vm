@@ -3,7 +3,7 @@
 Stand: 2026-10-19. Entwicklungsbranch: `feat/debian-opencode-v2`.
 Ausgangscommit: `8305ae90d5bd9a8140fdf850425d5565f53d4bef` (OCVM 0.7.70).
 
-Aktueller Prüfstand: OCVM **0.7.85**, MCP **0.1.67**, OpenLive **0.1.9**,
+Aktueller Prüfstand: OCVM **0.7.86**, MCP **0.1.68**, OpenLive **0.1.9**,
 OpenCode **2.0.32**. Die folgenden historischen Befunde dokumentieren auch
 fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 
@@ -11,12 +11,12 @@ fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 | --- | --- | --- |
 | Native V2-API, Policy, MCP, A2A und OpenLive-Gateway | PASS mit echter Binary und lokalem Mock | Web/MCP und exaktes Sitzungsergebnis belegt; übrige native Verträge gezielt in der Cloud geprüft |
 | Kalter Start und Gast-Worktree über MCP | Syntax/Build/Verträge PASS | PASS mit 0.7.81, ohne manuelles Vorwärmen |
-| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine | Offen: Erzeugungs-/Dispatchbestätigung unsicher; Ursache nicht belegt |
+| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine, auch mit 0.1.68 | Offen: `create_monitor` scheitert im Registry-Pfad; Python-Resolver-Timeouts und Lockfehler protokolliert. Resolverkorrektur noch real zu prüfen |
 | Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | PASS mit 0.7.84 nach echtem Boot-Wechsel und geleertem Gast-`/tmp`; 0.7.82 bleibt historischer FAIL |
 | Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | PASS: vorhandenes Ticket und genau ein neuer Schreibzugriff nach Neuboot |
 | Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | PASS mit 0.7.84: tatsächliche native Live-Liste und folgende Markerzeile aus stdin-gespeistem Hostskript |
 | OAuth-Logout bewahrt unabhängigen Key | PASS mit synthetischen Credentials | PASS: Hostwrapper-Dryrun/Logout, native DB und dauerhafter Snapshot |
-| 9p-Dateien, Rechte, Symlinks, Git und Worktree | Keine VM-Abnahme möglich | Dateipfade PASS; `flock` über Host/Gast nicht exklusiv. Host-inotify bei Gast-Write belegt; Gegenrichtung offen. FD-Basiswerte erfasst |
+| 9p-Dateien, Rechte, Symlinks, Git und Worktree | Keine VM-Abnahme möglich | Dateipfade PASS; `flock` gastlokal exklusiv, über Host/Gast nicht exklusiv. Host-inotify bei Gast-Write belegt; im Gast bei Host-Write binnen 5 s kein Event. FD-Basiswerte erfasst |
 | macOS/VZ/virtiofs | Bash-3.2.57-Kompatibilität geprüft | Echter Maclauf offen |
 
 ## Auftrag und Quellen
@@ -325,7 +325,9 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   fehlender Server bleibt unbekannt, ein tatsächlicher Abfragefehler bleibt
   ein Fehler. Gezielte Vorher-/Nachher-Proben an der echten CLI-Funktion mit
   Bash 5 und 3.2.57 bestätigen alle drei Fälle sowie gestoppte/fehlende
-  Sitzungen und Vorlagenfehler. Die Realprüfung dieser Rückmeldung steht aus.
+  Sitzungen und Vorlagenfehler. Die erneute reale Live-Abfrage mit 0.7.85
+  bestätigt native Metadaten, Exit 0, erhaltene Markerzeile und das Ende der
+  falschen Unbekannt-Meldung.
 
 ## Reale Abnahme mit 0.7.84
 
@@ -355,8 +357,11 @@ ein Host-inotify-Ereignis bei Gast-Schreibzugriff. **Ein `flock` im Host
 verhinderte den Gastzugriff auf dieselbe Lockdatei nicht.** Daher besteht kein
 Nachweis einer gemeinsamen exklusiven Host-/Gast-Sperre. Die bestehenden
 Adapter-Sperren koordinieren kooperierende Prozesse im selben Gast; daraus
-folgt keine Sperre gegen direkte Host-Schreiber. Die Gast-inotify-Richtung
-wird getrennt nachgeprüft. Momentaufnahmen der offenen Dateien und Limits in
+folgt keine Sperre gegen direkte Host-Schreiber. Die Nachprüfung beobachtete
+im Gast innerhalb von fünf Sekunden kein inotify-Event bei einem Host-Write.
+Dateisichtbarkeit und Push-Benachrichtigung sind verschiedene Eigenschaften;
+Gastwerkzeuge, die Hoständerungen erkennen müssen, benötigen hier Polling.
+Momentaufnahmen der offenen Dateien und Limits in
 Host und Gast zeigten keine Anomalie; sie sind kein Last- oder ENFILE-Nachweis.
 
 Der ursprüngliche Monitor bleibt deaktiviert und seine unsicheren Aufträge
@@ -366,6 +371,32 @@ Adoption. Adoption dauerte 1445 ms bei 3000 ms Frist: ein Timeout ist damit
 nicht belegt. Auch ein Worktreefehler ist nicht belegt. Die eigentliche
 Erzeugungs-/Dispatchunsicherheit des Engine-Diensts ist noch offen und wird
 mit einer begrenzten Probe am tatsächlichen Erzeugungspfad eingegrenzt.
+Diese eine Probe gelang vollständig, ohne Inference: native Erzeugung
+1820 ms, Adoption 607 ms, gesamter Ablauf 3366 ms bei getrennten Fristen.
+Sie beweist keinen Daemon-Dispatch. Ein frischer `create_monitor`-Aufruf
+scheiterte dagegen vor Veröffentlichung; vollständige MCP-Liste und lesender
+Registry-Abgleich bestätigten das Fehlen eines neuen Eintrags.
+
+## Resolverkorrektur mit 0.7.86 / MCP 0.1.68
+
+Der echte Engine-Dienst protokollierte `spawnSync python3 ETIMEDOUT`, fehlende
+`.lock/owner`-Dateien und nicht erworbene Registry-Locks. Der gemeinsame
+Gast-Pfadresolver startete bei jeder Auflösung pro Verzeichniskomponente einen
+eigenen `stat`-Prozess. Wiederholte synchrone Auflösungen blockieren dadurch
+die Node-Dienste besonders auf kleinen verschachtelten Hosts.
+
+Die Korrektur bündelt die GNU-stat-Abfrage je geprüftem Pfad. Absolute und
+normalisierte Pfade, jede Komponente, Eigentümer, Rechte, Symlinks und alle
+Dateisystemtypen werden weiterhin geprüft; unvollständige stat-Ausgaben
+scheitern geschlossen. Es gibt keinen Pfadcache und keine höhere Frist.
+Die MonitorEngine, Claims und WAL bleiben unverändert.
+
+Gezielte Cloud-Proben bewahren die Schutzgrenzen einschließlich eines
+simulierten 9p-Vorfahren. Für eine Auflösung mit Readback sinkt die Zahl der
+externen stat-Prozesse von 38 auf 8. Quellhelper, eingebetteter Payload und
+MCP-Archiv stimmen bytegenau überein. Die native Integration mit Taskboard,
+MCP, echten V2-Hooks, Priming und zweitem Wake besteht erneut. Reale
+Vorher-/Nachher-Messung und anschließender Engine-Nachweis stehen noch aus.
 
 ## Umfang der nativen Brücke
 

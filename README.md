@@ -44,6 +44,11 @@ Lima/config/data namespace. The default invocation retains the saved V1 setup.
 The Debian candidate selects Lima/QEMU with KVM and 9p; a usable `/dev/kvm` is
 required. macOS continues to use Lima/vz with virtiofs.
 
+The tested 9p mount provides file visibility in both directions, but a host
+`flock` does not exclude the guest. Guest-local locks work. A host write did
+not produce a guest inotify event in the bounded probe; guest development
+tools that need to watch host edits should use polling.
+
 On Debian install the official [Lima Linux release](https://lima-vm.io/docs/installation/)
 and host dependencies before running `init`:
 
