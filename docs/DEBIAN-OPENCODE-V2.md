@@ -280,6 +280,25 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   identisch, ohne erneuten Modellaufruf. Zusätzlich Kopierfehler, leeres
   Boot-Verzeichnis, veraltete Zieldatei, private Credentials und ausgeschlossene
   Legacy-Auth geprüft. Der entsprechende erneute echte VM-Boot bleibt offen.
+- Zusätzliche Cloud-Integration mit tatsächlicher nativer V2-Plugin-Initialisierung
+  und Hooks, Taskboard 0.6.0, MCP-Transport und unveränderter MonitorEngine PASS:
+  primierter Manager und zweiter Wake erhalten getrennte exakte Receipts und
+  vollständige Originaltexte mit verifiziertem SHA-256. Genau zwei lokale
+  Mock-Anfragen; ein weiterer Takt erzeugt keine Zusatzinferenz. Anschließend
+  produktkonformes Deaktivieren. Auch mit echtem eigenem Git-Commit geprüft.
+  Der eigene Diagnoseaufruf an einer bestehenden Sitzung ist zusätzlich gegen
+  den tatsächlichen `monitor-main`-Prozess mit dessen PID/Umgebung geprüft.
+  Dies ersetzt keine systemd-/AppArmor-/KVM-/9p-Abnahme auf testproxmox.
+- Die echte Provider-Wrapper-Probe zeigte einen konkreten Automatisierungsfehler:
+  nichtinteraktive Lima-Aufrufe konnten beim Aufruf aus `bash -s`/einem
+  Here-Dokument den Rest des aufrufenden Skripts von stdin verbrauchen.
+  Ab 0.7.84 schließen strukturierte Provider-List-/Logout-Aufrufe und die
+  kontrollierte Lifecycle-Finalisierung ihre Eingabe am Aufrufort. Der
+  interaktive VM-Einstieg bleibt separat. Gezielter Vorher-/Nachher-Nachweis
+  mit echten stdin-lesenden Kindprozessen und Bash 5 sowie 3.2.57 PASS:
+  Liste, Logout und Capture behalten das folgende Hostkommando; JSON-Capture
+  und Auth-Publikation funktionieren weiter. Der reguläre Gast-Wrapper-
+  Nachweis dieses letzten Hostfixes steht noch aus.
 
 ## Umfang der nativen Brücke
 

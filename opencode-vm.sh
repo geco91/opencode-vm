@@ -56,7 +56,7 @@ OPENLIVE_PREVIOUS_COMMAND="$OPENLIVE_DIR/previous-command"
 OPENLIVE_AUTH_MARKER="__opencode_vm_openlive__"
 OPENLIVE_LOCK_PATH=""
 OPENLIVE_ADAPTER_VERSION="0.1.9"
-OPENLIVE_ADAPTER_TAG="v0.7.83"
+OPENLIVE_ADAPTER_TAG="v0.7.84"
 OPENLIVE_ADAPTER_FILENAME="opencode-vm-openlive-adapter-0.1.9.tar"
 OPENLIVE_ADAPTER_SHA256="195a819ffb3b71d07d2b86a792232677c3c4fcc1e03d6bcc8cc1f2230f57fa28"
 OPENLIVE_ACP_SDK_VERSION="1.2.1"
@@ -67,7 +67,7 @@ OPENLIVE_MANAGER_PROMPT="You manage an OpenLive voice call. The voice_sessions t
 MCP_CONNECTOR_DIR="$SHARE_ROOT/mcp-connector"
 MCP_ADAPTER_CACHE_ROOT="$MCP_CONNECTOR_DIR/adapters"
 MCP_ADAPTER_VERSION="0.1.67"
-MCP_ADAPTER_TAG="v0.7.83"
+MCP_ADAPTER_TAG="v0.7.84"
 MCP_ADAPTER_FILENAME="opencode-vm-mcp-adapter-0.1.67.tar"
 MCP_ADAPTER_SHA256="af7faf7310fa7cba1bbb72994fdaa0e2d25724270d21cc90d854ba077ab4f8d4"
 MCP_SDK_VERSION="1.30.1"
@@ -586,7 +586,7 @@ TASKBOARD_ARM64_SHA256="3749fb985f544fdb6788ba1dff69761e599ff82b3fe86d39ca54307c
 
 # Self-update metadata
 SCRIPT_NAME="opencode-vm.sh"
-OCVM_VERSION="0.7.83"
+OCVM_VERSION="0.7.84"
 OCVM_UPDATE_REPO="GeektankLabs/opencode-vm"
 OCVM_UPDATE_BRANCH="main"
 OCVM_UPDATE_SCRIPT_PATH="opencode-vm.sh"
@@ -7833,12 +7833,14 @@ PROVIDER_VM
 
 # Run the provider VM payload, dropping the known cosmetic bash 5.2 internal
 # error ("pop_var_context: ...") from stderr while keeping real messages. Stdout
-# is passed through so callers can capture or stream it.
+# is passed through so callers can capture or stream it. These structured
+# list/logout actions never read caller input; keep SSH from consuming a
+# surrounding automation script supplied on stdin.
 _provider_vm_exec() {
   local vm="$1"; shift
   local err rc=0
   err="$(mktemp)"
-  vm_exec "$vm" "$OCVM_PROVIDER_VM_SH" "$@" 2>"$err" || rc=$?
+  vm_exec "$vm" "$OCVM_PROVIDER_VM_SH" "$@" < /dev/null 2>"$err" || rc=$?
   grep -v 'pop_var_context: head of shell_variables not a function context' "$err" >&2 || true
   rm -f "$err"
   return "$rc"
@@ -9577,7 +9579,7 @@ lifecycle_finalize_runtime() {
       else
         jq -e "select(type == \"object\")" /tmp/oc-xdg-data/opencode/auth.json
       fi
-    ' "$share" > "$tmp" || ! _auth_sync_atomic_json "$tmp" "$snapshot"; then
+    ' "$share" < /dev/null > "$tmp" || ! _auth_sync_atomic_json "$tmp" "$snapshot"; then
       rm -f "$tmp"
       echo "[auth] Final live capture failed; VM and share must be retained." >&2
       return 1
