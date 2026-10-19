@@ -3,7 +3,7 @@
 Stand: 2026-10-19. Entwicklungsbranch: `feat/debian-opencode-v2`.
 Ausgangscommit: `8305ae90d5bd9a8140fdf850425d5565f53d4bef` (OCVM 0.7.70).
 
-Aktueller Prüfstand: OCVM **0.7.86**, MCP **0.1.68**, OpenLive **0.1.9**,
+Aktueller Prüfstand: OCVM **0.7.87**, MCP **0.1.69**, OpenLive **0.1.9**,
 OpenCode **2.0.32**. Die folgenden historischen Befunde dokumentieren auch
 fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 
@@ -11,7 +11,7 @@ fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 | --- | --- | --- |
 | Native V2-API, Policy, MCP, A2A und OpenLive-Gateway | PASS mit echter Binary und lokalem Mock | Web/MCP und exaktes Sitzungsergebnis belegt; übrige native Verträge gezielt in der Cloud geprüft |
 | Kalter Start und Gast-Worktree über MCP | Syntax/Build/Verträge PASS | PASS mit 0.7.81, ohne manuelles Vorwärmen |
-| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine, auch mit 0.1.68 | Offen: `create_monitor` mit 0.1.68 bestätigt; `trigger_monitor` liefert internen Fehler, kein Dispatch nachgewiesen. Offener Engine-Wake wird eingegrenzt |
+| Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine, auch mit 0.1.69 | Offen: `create_monitor` bestätigt; mit 0.1.68 scheiterten `enable_monitor` und `disable_monitor` an der Registry-Sperre. Reale Gegenprobe der Korrektur steht aus |
 | Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | PASS mit 0.7.84 nach echtem Boot-Wechsel und geleertem Gast-`/tmp`; 0.7.82 bleibt historischer FAIL |
 | Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | PASS: vorhandenes Ticket und genau ein neuer Schreibzugriff nach Neuboot |
 | Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | PASS mit 0.7.84: tatsächliche native Live-Liste und folgende Markerzeile aus stdin-gespeistem Hostskript |
@@ -423,6 +423,45 @@ Hänger. `mkdir`/`EEXIST` ist außerdem behandelte Lock-Konkurrenz. Die Probe
 begründet deshalb keinen weiteren Produktfix. Ihre temporäre Unit-Überlagerung
 ist entfernt und die Originalkonfiguration wiederhergestellt. Der reguläre
 explizite erste und zweite Wake am unveränderten Dienst bleiben nachzuweisen.
+
+Die anschließende reguläre Probe am unveränderten Dienst scheiterte bereits
+bei `enable_monitor` (5507 ms). Der vollständige Zustandsabgleich bestätigte
+weiterhin einen deaktivierten Monitor ohne Sitzung oder ausstehenden Wake;
+deshalb erfolgte kein Trigger. Auch der abschließende `disable_monitor`-Aufruf
+lieferte einen internen Fehler (6272 ms), der gewünschte deaktivierte Zustand
+war jedoch bestätigt. Lesende MCP-Aufrufe funktionierten. Die ab frischen
+Byte-Offsets gelesenen Engine-Logs enthielten keinen neuen Fehler. Acht
+Sitzungen, sechs bisherige Mock-Anfragen, ein Key und zwei Taskboard-Tickets
+blieben unverändert. Die ursprüngliche Ausnahme im Verwaltungs-Schreibpfad
+wird gezielt erfasst; dieser Befund beweist keinen blockierten Engine-Takt.
+
+## Kürzere Registry-Sperre mit 0.7.87 / MCP 0.1.69
+
+Eine private Diagnosekopie der tatsächlichen MCP-Toolhandler erfasst die
+ursprüngliche Ausnahme vor ihrer allgemeinen Fehlerantwort. Unter dem echten
+Dienstbenutzer mit unverändertem HOME und AppArmor-Profil scheitern sowohl
+Aktivieren als auch Deaktivieren mit `monitor registry lock could not be
+acquired` aus `acquireLock`. Beide Aufrufe laufen über den SDK-InMemory-Transport;
+damit ist der Fehler auch unabhängig vom öffentlichen HTTP-Transport belegt.
+Die installierten Module und Dienste bleiben unverändert, beide Monitore
+deaktiviert und alle Zähler erhalten. Der vollständige Diagnosebericht umfasst
+6141 Byte mit SHA-256
+`17e8668eca2eeb7768d6af50462120d3b133bb4964f6d964832809153dcfde37`.
+
+Der Registry-Schreibpfad führte nach der geprüften Verzeichnisauflösung vor der
+Sperre dieselbe synchrone Gast-Pfadprüfung innerhalb der Sperre erneut aus.
+Ab 0.1.69 liest er im gesperrten Abschnitt direkt aus diesem bereits geprüften
+Verzeichnis. Dateityp-, Symlink-, Größen- und Schemaprüfung, Generation-CAS und
+atomare Veröffentlichung bleiben erhalten. Keine Frist wird angehoben; die
+MonitorEngine sowie die Claim-/WAL-Wiederherstellung bleiben unverändert.
+
+Eine gezielte Cloud-Gegenprobe mit zwei getrennten Schreibern und verzögerter
+echter Helper-Ausführung reproduziert zuvor einen Lockfehler. Mit der Korrektur
+gelingen beide Änderungen mit aufeinanderfolgenden Generationen. Veraltete
+Generationen und ungültige Registry-Daten werden weiterhin zurückgewiesen.
+Die vollständige native Cloud-Integration mit Taskboard, MCP, Priming und
+zweitem Wake besteht erneut mit exakt zwei lokalen Modellaufrufen. Ein Erfolg
+auf dem tatsächlichen Debian-Daemon ist damit noch nicht nachgewiesen.
 
 ## Umfang der nativen Brücke
 

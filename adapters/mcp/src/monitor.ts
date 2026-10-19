@@ -798,7 +798,13 @@ function workersShapeOk(monitorId: string, workers: unknown): workers is Monitor
 }
 
 export async function readRegistrySnapshot(project: string): Promise<RegistrySnapshot> {
-  const path = monitorRegistryPath(project);
+  return readRegistryAt(monitorRegistryPath(project));
+}
+
+// Callers must resolve the owned guest directory before entering this reader.
+// In particular, a writer already holding the registry lock must not invoke
+// the synchronous guest resolver again while competing writers are waiting.
+async function readRegistryAt(path: string): Promise<RegistrySnapshot> {
   try {
     const info = await lstat(path);
     if (!info.isFile() || info.isSymbolicLink() || info.size > 1_048_576) throw new Error("unsafe monitor registry");
@@ -863,7 +869,7 @@ export async function withRegistry(
   if (!root.isDirectory() || root.isSymbolicLink()) throw new Error("unsafe monitor project root");
   const release = await acquireLock(directory, options.now ?? Date.now());
   try {
-    const snapshot = await readRegistrySnapshot(project);
+    const snapshot = await readRegistryAt(join(directory, "registry.json"));
     if (options.expected !== undefined && snapshot.registry.generation !== options.expected) {
       throw new Error("monitor registry changed concurrently");
     }
