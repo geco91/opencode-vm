@@ -225,7 +225,8 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   Healthprüfung. Veraltete Runtime-/Ready-Dateien gelten nicht als Nachweis.
   Gezielte beschleunigte Ablaufproben mit Bash 5 und 3.2.57 prüfen langsame
   Vorbereitung, veraltete Generation, fehlenden Listener, falsche Health-
-  Generation und Abbruch. Der kalte reale Debian-Lauf bleibt separat offen.
+  Generation und Abbruch. Der kalte reale Debian-Lauf mit 0.7.81 bestand
+  anschließend ohne manuelles Vorwärmen nach etwa sechseinhalb Minuten.
 - Beim anschließenden Stop/Attach hielten zurückgebliebene Proxy-, OpenLive-
   und A2A-Hilfsprozesse den geerbten Runtime-Lock offen. Ihre Supervisoren und
   der A2A-Bereitschaftsbeobachter schließen jetzt FD 9 beim Start, ebenso wie
@@ -233,7 +234,10 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   Hilfsprozessen und eigenen Dummy-Diensten bestätigt: Der Controller hält
   seine Sperre weiter; nach dessen Ende blockieren die weiterlebenden Helfer
   sie nicht mehr. Native Schreiber- und Ownership-Prüfungen bleiben erhalten.
-  Der reale erneute Stop/Attach-Nachweis mit diesem Fix steht noch aus.
+  Der reale Capture/Takeover-/Re-Attach mit 0.7.81 erreichte anschließend
+  wieder vollständige MCP-Bereitschaft ohne manuell getötete Helfer oder
+  Auth-Seeds. Der vorherige Host-Stop endete mit Exit 1; das belegt keinen
+  normalen Stop und keinen VM-Neuboot mit wiederhergestellter Historie.
   Ein echter macOS-VM-Lauf und LMStudio-Inference bleiben separat offen.
 - Provider-Schreibbefehle verwenden im Experiment jetzt native
   `providers`/`package`/`settings`/`capabilities` statt V1-Config und `auth.json`.
@@ -259,6 +263,23 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   neue Aufträge. Mit dem gemeinsamen Client ist die Abdeckung wieder
   `session+descendants` (echte API-Gegenprobe). Die eigene Read-only-Grenze des Dashboards
   bleibt erhalten.
+- Der echte VM-Neuboot mit 0.7.82 zeigte eine weitere Lücke: Die native
+  Sitzung samt 62-Byte-Ergebnis lag ausschließlich im Gast-`/tmp`. Der
+  Credential-Capture war erfolgreich, aber die bestmögliche EXIT-Trap hatte
+  keine History-DB im Share hinterlassen. Nach nachgewiesenem Boot-ID-Wechsel
+  war `session_v2` leer; dieser Fall ist ausdrücklich FAIL, kein Resume-PASS.
+  Ab 0.7.83 sichert die kontrollierte Finalisierung unter derselben exklusiven
+  Sperre nach dem Ende aller nativen Schreiber auch Datenbank, WAL, Lineage
+  und XDG-State verpflichtend. Prüfsummen verhindern ein Überspringen bei
+  gleichem mtime/Dateigröße; entfernte native Dateien bleiben entfernt.
+  Ein Kopierfehler sperrt die Bereinigung. Ohne native Gast-DB wird eine
+  vorhandene Sicherung nicht mit einem leeren Vor-Restore-Verzeichnis ersetzt.
+  Gezielter Cloud-Nachweis mit echter OpenCode-2.0.32-Binary PASS: Sitzung,
+  Benutzer-/Assistant-ID, vollständiger Ergebnistext mit SHA-256 und eigener
+  synthetischer Key bleiben nach Sicherung, vollständigem Leeren und Restore
+  identisch, ohne erneuten Modellaufruf. Zusätzlich Kopierfehler, leeres
+  Boot-Verzeichnis, veraltete Zieldatei, private Credentials und ausgeschlossene
+  Legacy-Auth geprüft. Der entsprechende erneute echte VM-Boot bleibt offen.
 
 ## Umfang der nativen Brücke
 

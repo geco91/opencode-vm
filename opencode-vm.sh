@@ -56,7 +56,7 @@ OPENLIVE_PREVIOUS_COMMAND="$OPENLIVE_DIR/previous-command"
 OPENLIVE_AUTH_MARKER="__opencode_vm_openlive__"
 OPENLIVE_LOCK_PATH=""
 OPENLIVE_ADAPTER_VERSION="0.1.9"
-OPENLIVE_ADAPTER_TAG="v0.7.82"
+OPENLIVE_ADAPTER_TAG="v0.7.83"
 OPENLIVE_ADAPTER_FILENAME="opencode-vm-openlive-adapter-0.1.9.tar"
 OPENLIVE_ADAPTER_SHA256="195a819ffb3b71d07d2b86a792232677c3c4fcc1e03d6bcc8cc1f2230f57fa28"
 OPENLIVE_ACP_SDK_VERSION="1.2.1"
@@ -67,7 +67,7 @@ OPENLIVE_MANAGER_PROMPT="You manage an OpenLive voice call. The voice_sessions t
 MCP_CONNECTOR_DIR="$SHARE_ROOT/mcp-connector"
 MCP_ADAPTER_CACHE_ROOT="$MCP_CONNECTOR_DIR/adapters"
 MCP_ADAPTER_VERSION="0.1.67"
-MCP_ADAPTER_TAG="v0.7.82"
+MCP_ADAPTER_TAG="v0.7.83"
 MCP_ADAPTER_FILENAME="opencode-vm-mcp-adapter-0.1.67.tar"
 MCP_ADAPTER_SHA256="af7faf7310fa7cba1bbb72994fdaa0e2d25724270d21cc90d854ba077ab4f8d4"
 MCP_SDK_VERSION="1.30.1"
@@ -586,7 +586,7 @@ TASKBOARD_ARM64_SHA256="3749fb985f544fdb6788ba1dff69761e599ff82b3fe86d39ca54307c
 
 # Self-update metadata
 SCRIPT_NAME="opencode-vm.sh"
-OCVM_VERSION="0.7.82"
+OCVM_VERSION="0.7.83"
 OCVM_UPDATE_REPO="GeektankLabs/opencode-vm"
 OCVM_UPDATE_BRANCH="main"
 OCVM_UPDATE_SCRIPT_PATH="opencode-vm.sh"
@@ -9552,6 +9552,24 @@ lifecycle_finalize_runtime() {
           python3 "$1/config/opencode/managed-policy/v2-credentials.py" \
             /tmp/oc-xdg-data/opencode/opencode.db \
             /tmp/oc-xdg-data/opencode/credentials-v2.json "$1/xdg-data/opencode/credentials-v2.json"
+          # The controller EXIT trap is best effort and may have been
+          # interrupted. Under this stopped-writer lock, persist the native
+          # DB, WAL and lineage together before allowing VM cleanup/reboot.
+          # Never mirror an empty pre-restore /tmp over a retained snapshot.
+          mkdir -p "$1/xdg-data/opencode"
+          if ! rsync -a --checksum --delete --exclude="auth.json" \
+            --exclude="bin/" --exclude="log/" --exclude="tool-output/" \
+            /tmp/oc-xdg-data/opencode/ "$1/xdg-data/opencode/"; then
+            echo "[history] V2 data capture failed; preserving the VM and share." >&2
+            exit 1
+          fi
+          if [ -d /tmp/oc-xdg-state/opencode ]; then
+            mkdir -p "$1/xdg-state/opencode"
+            if ! rsync -a --checksum --delete /tmp/oc-xdg-state/opencode/ "$1/xdg-state/opencode/"; then
+              echo "[history] V2 state capture failed; preserving the VM and share." >&2
+              exit 1
+            fi
+          fi
         fi
         # V2 credentials live in the native DB/snapshot, never auth.json.
         # /tmp may already be empty after a VM reboot.
