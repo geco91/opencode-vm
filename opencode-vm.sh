@@ -56,7 +56,7 @@ OPENLIVE_PREVIOUS_COMMAND="$OPENLIVE_DIR/previous-command"
 OPENLIVE_AUTH_MARKER="__opencode_vm_openlive__"
 OPENLIVE_LOCK_PATH=""
 OPENLIVE_ADAPTER_VERSION="0.1.9"
-OPENLIVE_ADAPTER_TAG="v0.7.78"
+OPENLIVE_ADAPTER_TAG="v0.7.79"
 OPENLIVE_ADAPTER_FILENAME="opencode-vm-openlive-adapter-0.1.9.tar"
 OPENLIVE_ADAPTER_SHA256="195a819ffb3b71d07d2b86a792232677c3c4fcc1e03d6bcc8cc1f2230f57fa28"
 OPENLIVE_ACP_SDK_VERSION="1.2.1"
@@ -67,7 +67,7 @@ OPENLIVE_MANAGER_PROMPT="You manage an OpenLive voice call. The voice_sessions t
 MCP_CONNECTOR_DIR="$SHARE_ROOT/mcp-connector"
 MCP_ADAPTER_CACHE_ROOT="$MCP_CONNECTOR_DIR/adapters"
 MCP_ADAPTER_VERSION="0.1.66"
-MCP_ADAPTER_TAG="v0.7.78"
+MCP_ADAPTER_TAG="v0.7.79"
 MCP_ADAPTER_FILENAME="opencode-vm-mcp-adapter-0.1.66.tar"
 MCP_ADAPTER_SHA256="75fc527b40f6def4673198a5a9c6f37162030d0becd0e4c4928f1368bb5834ee"
 MCP_SDK_VERSION="1.30.1"
@@ -555,7 +555,7 @@ TASKBOARD_ARM64_SHA256="3749fb985f544fdb6788ba1dff69761e599ff82b3fe86d39ca54307c
 
 # Self-update metadata
 SCRIPT_NAME="opencode-vm.sh"
-OCVM_VERSION="0.7.78"
+OCVM_VERSION="0.7.79"
 OCVM_UPDATE_REPO="GeektankLabs/opencode-vm"
 OCVM_UPDATE_BRANCH="main"
 OCVM_UPDATE_SCRIPT_PATH="opencode-vm.sh"
@@ -15277,6 +15277,7 @@ start_proxy() {
   # is the supervisor's own $0 and stop_proxy can identify it without knowing
   # anything about who started it. Detached from the terminal because a
   # background job holding stdout keeps `limactl shell` from ever returning.
+  # Helpers must not retain the controller's runtime lock after it exits.
   setsid bash -c '
     marker="$0"; name="$1"; py="$2"; listen="$3"; target="$4"
      key="$5"; crt="$6"; keyf="$7"; remote="$8"; remote_project="$9"; remote_generation="${10}"
@@ -15288,7 +15289,7 @@ start_proxy() {
       wait $! || true
       sleep 1
     done' "$marker" "$name" "$OC_PROXY_PY" "$listen" "$target" "$seedkey" "$crt" "$keyf" "$remote" "$remote_project" "$remote_generation" \
-    "$launcher_share" "$launcher_project" "$launcher_enabled" "$project_title" "$taskboard_runtime_dir" "$hub_generation" </dev/null >/dev/null 2>&1 &
+    "$launcher_share" "$launcher_project" "$launcher_enabled" "$project_title" "$taskboard_runtime_dir" "$hub_generation" </dev/null >/dev/null 2>&1 9>&- &
   echo $! > "/tmp/ocvm-proxy-$name.sup.pid"
   while [ "$waited" -lt 20 ]; do
     if ss -ltn "sport = :$listen" 2>/dev/null | grep -q LISTEN; then
@@ -16212,7 +16213,7 @@ start_openlive_gateway() {
       wait $! || true
       sleep 1
     done' "$marker" "$adapter" "$SESS_SHARE/openlive/gateway.log" \
-    </dev/null >/dev/null 2>&1 &
+    </dev/null >/dev/null 2>&1 9>&- &
   echo $! > /tmp/ocvm-openlive-gateway.sup.pid
   while [ "$waited" -lt 20 ]; do
     if [ -f "$ready_file" ] && jq -e --arg project "$OC_OPENLIVE_PROJECT_HASH" \
@@ -17049,7 +17050,7 @@ start_a2a() {
       wait $! || true
       sleep 2
     done' "ocvm-a2a-supervisor" "$A2A_BIN" "$OC_PORT_INTERNAL" \
-    </dev/null >/dev/null 2>&1 &
+    </dev/null >/dev/null 2>&1 9>&- &
   echo $! > /tmp/ocvm-a2a.sup.pid
   return 0
 }
@@ -17078,7 +17079,7 @@ a2a_watch_ready() {
       else
         echo "[a2a]   Web mode continues without A2A. Use --require-a2a to make this fatal."
       fi
-    fi ) &
+    fi ) 9>&- &
   return 0
 }
 

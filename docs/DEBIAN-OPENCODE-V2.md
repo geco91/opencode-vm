@@ -226,6 +226,14 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   Gezielte beschleunigte Ablaufproben mit Bash 5 und 3.2.57 prüfen langsame
   Vorbereitung, veraltete Generation, fehlenden Listener, falsche Health-
   Generation und Abbruch. Der kalte reale Debian-Lauf bleibt separat offen.
+- Beim anschließenden Stop/Attach hielten zurückgebliebene Proxy-, OpenLive-
+  und A2A-Hilfsprozesse den geerbten Runtime-Lock offen. Ihre Supervisoren und
+  der A2A-Bereitschaftsbeobachter schließen jetzt FD 9 beim Start, ebenso wie
+  bereits der MCP-Supervisor. Ein gezielter Vorher-/Nachher-Lauf mit echten
+  Hilfsprozessen und eigenen Dummy-Diensten bestätigt: Der Controller hält
+  seine Sperre weiter; nach dessen Ende blockieren die weiterlebenden Helfer
+  sie nicht mehr. Native Schreiber- und Ownership-Prüfungen bleiben erhalten.
+  Der reale erneute Stop/Attach-Nachweis mit diesem Fix steht noch aus.
   Ein echter macOS-VM-Lauf und LMStudio-Inference bleiben separat offen.
 
 ## Umfang der nativen Brücke
