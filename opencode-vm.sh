@@ -56,7 +56,7 @@ OPENLIVE_PREVIOUS_COMMAND="$OPENLIVE_DIR/previous-command"
 OPENLIVE_AUTH_MARKER="__opencode_vm_openlive__"
 OPENLIVE_LOCK_PATH=""
 OPENLIVE_ADAPTER_VERSION="0.1.9"
-OPENLIVE_ADAPTER_TAG="v0.7.84"
+OPENLIVE_ADAPTER_TAG="v0.7.85"
 OPENLIVE_ADAPTER_FILENAME="opencode-vm-openlive-adapter-0.1.9.tar"
 OPENLIVE_ADAPTER_SHA256="195a819ffb3b71d07d2b86a792232677c3c4fcc1e03d6bcc8cc1f2230f57fa28"
 OPENLIVE_ACP_SDK_VERSION="1.2.1"
@@ -67,7 +67,7 @@ OPENLIVE_MANAGER_PROMPT="You manage an OpenLive voice call. The voice_sessions t
 MCP_CONNECTOR_DIR="$SHARE_ROOT/mcp-connector"
 MCP_ADAPTER_CACHE_ROOT="$MCP_CONNECTOR_DIR/adapters"
 MCP_ADAPTER_VERSION="0.1.67"
-MCP_ADAPTER_TAG="v0.7.84"
+MCP_ADAPTER_TAG="v0.7.85"
 MCP_ADAPTER_FILENAME="opencode-vm-mcp-adapter-0.1.67.tar"
 MCP_ADAPTER_SHA256="af7faf7310fa7cba1bbb72994fdaa0e2d25724270d21cc90d854ba077ab4f8d4"
 MCP_SDK_VERSION="1.30.1"
@@ -586,7 +586,7 @@ TASKBOARD_ARM64_SHA256="3749fb985f544fdb6788ba1dff69761e599ff82b3fe86d39ca54307c
 
 # Self-update metadata
 SCRIPT_NAME="opencode-vm.sh"
-OCVM_VERSION="0.7.84"
+OCVM_VERSION="0.7.85"
 OCVM_UPDATE_REPO="GeektankLabs/opencode-vm"
 OCVM_UPDATE_BRANCH="main"
 OCVM_UPDATE_SCRIPT_PATH="opencode-vm.sh"
@@ -8661,7 +8661,11 @@ provider_cmd() {
           native_vm="$(unset SESS_NAME; source "$native_senv"; printf '%s' "${SESS_NAME:-}")"
           if [[ -n "$native_vm" ]] && is_vm_running "$native_vm"; then
             echo "[provider] Live project metadata (ID/type/state/credential-present/availability):"
-            _provider_vm_exec "$native_vm" list "$(session_share_dir "$(pwd)")" "$(pwd)" "$OPENLIVE_AUTH_MARKER" || native_rc=$?
+            if _provider_vm_exec "$native_vm" list "$(session_share_dir "$(pwd)")" "$(pwd)" "$OPENLIVE_AUTH_MARKER"; then
+              native_rc=0
+            else
+              native_rc=$?
+            fi
           fi
         fi
         [[ "$native_rc" != 3 ]] || echo "[provider] Live runtime status unknown: no running project web server."

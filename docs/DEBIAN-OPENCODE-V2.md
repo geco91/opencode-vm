@@ -3,7 +3,7 @@
 Stand: 2026-10-19. Entwicklungsbranch: `feat/debian-opencode-v2`.
 Ausgangscommit: `8305ae90d5bd9a8140fdf850425d5565f53d4bef` (OCVM 0.7.70).
 
-Aktueller Prüfstand: OCVM **0.7.84**, MCP **0.1.67**, OpenLive **0.1.9**,
+Aktueller Prüfstand: OCVM **0.7.85**, MCP **0.1.67**, OpenLive **0.1.9**,
 OpenCode **2.0.32**. Die folgenden historischen Befunde dokumentieren auch
 fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 
@@ -14,7 +14,7 @@ fehlgeschlagene Zwischenstände; sie sind keine Freigabe des aktuellen Branches.
 | Monitor mit Priming und weiterem Wake | PASS mit nativen Hooks, Taskboard und unveränderter Engine | Offen: Erzeugungs-/Dispatchbestätigung unsicher; Ursache nicht belegt |
 | Historie und Key nach vollständigem Restore | PASS mit identischen IDs und Ergebnishash, ohne neue Inference | PASS mit 0.7.84 nach echtem Boot-Wechsel und geleertem Gast-`/tmp`; 0.7.82 bleibt historischer FAIL |
 | Taskboard lesen und schreiben | PASS mit tatsächlichem Taskboard 0.6.0 | PASS: vorhandenes Ticket und genau ein neuer Schreibzugriff nach Neuboot |
-| Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | Marker nach `provider list` erhalten; Wiederholung mit tatsächlichem Live-VM-Aufruf noch offen |
+| Nichtinteraktive Hostaufrufe behalten nachfolgende stdin-Kommandos | Vorher-/Nachher-Probe PASS mit Bash 5 und 3.2.57 | PASS mit 0.7.84: tatsächliche native Live-Liste und folgende Markerzeile aus stdin-gespeistem Hostskript |
 | OAuth-Logout bewahrt unabhängigen Key | PASS mit synthetischen Credentials | PASS: Hostwrapper-Dryrun/Logout, native DB und dauerhafter Snapshot |
 | 9p-Dateien, Rechte, Symlinks, Git und Worktree | Keine VM-Abnahme möglich | Dateipfade PASS; `flock` über Host/Gast nicht exklusiv. Host-inotify bei Gast-Write belegt; Gegenrichtung offen. FD-Basiswerte erfasst |
 | macOS/VZ/virtiofs | Bash-3.2.57-Kompatibilität geprüft | Echter Maclauf offen |
@@ -315,10 +315,17 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   interaktive VM-Einstieg bleibt separat. Gezielter Vorher-/Nachher-Nachweis
   mit echten stdin-lesenden Kindprozessen und Bash 5 sowie 3.2.57 PASS:
   Liste, Logout und Capture behalten das folgende Hostkommando; JSON-Capture
-  und Auth-Publikation funktionieren weiter. Im realen Hostskript blieb die
-  Markerzeile nach `provider list` erhalten. Dabei war der Webserver gestoppt;
-  ob der innere VM-Aufruf tatsächlich ausgeführt wurde, ist damit nicht
-  belegt. Eine gezielte Wiederholung bei laufendem Backend bleibt offen.
+  und Auth-Publikation funktionieren weiter. Nach einer ersten Probe bei
+  gestopptem Webserver wurde der reale Nachweis mit laufendem Backend
+  wiederholt: native Live-Credential-Metadaten, Exit 0 und die nachfolgende
+  Markerzeile blieben erhalten. Der VM-Aufruf wurde damit tatsächlich geprüft.
+- Diese Live-Probe zeigte einen separaten Anzeigefehler: Nach erfolgreicher
+  nativer Abfrage blieb die Host-Statusvariable auf dem ursprünglichen
+  „kein Server“-Wert. Ab 0.7.85 wird Erfolg ausdrücklich gesetzt; ein wirklich
+  fehlender Server bleibt unbekannt, ein tatsächlicher Abfragefehler bleibt
+  ein Fehler. Gezielte Vorher-/Nachher-Proben an der echten CLI-Funktion mit
+  Bash 5 und 3.2.57 bestätigen alle drei Fälle sowie gestoppte/fehlende
+  Sitzungen und Vorlagenfehler. Die Realprüfung dieser Rückmeldung steht aus.
 
 ## Reale Abnahme mit 0.7.84
 
