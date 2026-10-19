@@ -374,8 +374,9 @@ mit einer begrenzten Probe am tatsächlichen Erzeugungspfad eingegrenzt.
 Diese eine Probe gelang vollständig, ohne Inference: native Erzeugung
 1820 ms, Adoption 607 ms, gesamter Ablauf 3366 ms bei getrennten Fristen.
 Sie beweist keinen Daemon-Dispatch. Ein frischer `create_monitor`-Aufruf
-scheiterte dagegen vor Veröffentlichung; vollständige MCP-Liste und lesender
-Registry-Abgleich bestätigten das Fehlen eines neuen Eintrags.
+lieferte dagegen einen internen Fehler; vollständige MCP-Liste und lesender
+Registry-Abgleich fanden anschließend keinen neuen Eintrag. Der genaue
+Fehlerzeitpunkt vor oder nach einer Veröffentlichung ist damit nicht belegt.
 
 ## Resolverkorrektur mit 0.7.86 / MCP 0.1.68
 
