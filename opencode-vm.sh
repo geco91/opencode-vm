@@ -56,7 +56,7 @@ OPENLIVE_PREVIOUS_COMMAND="$OPENLIVE_DIR/previous-command"
 OPENLIVE_AUTH_MARKER="__opencode_vm_openlive__"
 OPENLIVE_LOCK_PATH=""
 OPENLIVE_ADAPTER_VERSION="0.1.9"
-OPENLIVE_ADAPTER_TAG="v0.7.77"
+OPENLIVE_ADAPTER_TAG="v0.7.78"
 OPENLIVE_ADAPTER_FILENAME="opencode-vm-openlive-adapter-0.1.9.tar"
 OPENLIVE_ADAPTER_SHA256="195a819ffb3b71d07d2b86a792232677c3c4fcc1e03d6bcc8cc1f2230f57fa28"
 OPENLIVE_ACP_SDK_VERSION="1.2.1"
@@ -67,7 +67,7 @@ OPENLIVE_MANAGER_PROMPT="You manage an OpenLive voice call. The voice_sessions t
 MCP_CONNECTOR_DIR="$SHARE_ROOT/mcp-connector"
 MCP_ADAPTER_CACHE_ROOT="$MCP_CONNECTOR_DIR/adapters"
 MCP_ADAPTER_VERSION="0.1.66"
-MCP_ADAPTER_TAG="v0.7.77"
+MCP_ADAPTER_TAG="v0.7.78"
 MCP_ADAPTER_FILENAME="opencode-vm-mcp-adapter-0.1.66.tar"
 MCP_ADAPTER_SHA256="75fc527b40f6def4673198a5a9c6f37162030d0becd0e4c4928f1368bb5834ee"
 MCP_SDK_VERSION="1.30.1"
@@ -555,7 +555,7 @@ TASKBOARD_ARM64_SHA256="3749fb985f544fdb6788ba1dff69761e599ff82b3fe86d39ca54307c
 
 # Self-update metadata
 SCRIPT_NAME="opencode-vm.sh"
-OCVM_VERSION="0.7.77"
+OCVM_VERSION="0.7.78"
 OCVM_UPDATE_REPO="GeektankLabs/opencode-vm"
 OCVM_UPDATE_BRANCH="main"
 OCVM_UPDATE_SCRIPT_PATH="opencode-vm.sh"
@@ -20304,7 +20304,8 @@ mcp_watch_host_ready() {
   printf '%s\n' pending > "$status" || { rm -f "$response" "$status"; return 1; }
   MCP_HOST_WATCH_STATUS="$status"
   (
-    local waited=0 ready="$share/mcp/ready.json" current_controller
+    local waited=0 preparing=0 prepared=0 ready="$share/mcp/ready.json" current_controller
+    local runtime="$share/mcp/runtime.json" timeout_phase=preparation
     trap '
       rc=$?
       if [[ "$rc" == "0" ]]; then printf "%s\n" ready > "$status"
@@ -20312,8 +20313,26 @@ mcp_watch_host_ready() {
       fi
       rm -f "$response"
     ' EXIT
-    while (( waited < 500 )); do
+    # A cold source checkout installs/builds guest dependencies first. The
+    # generation-bound runtime is published only after that work succeeds;
+    # do not spend the listener's 150-second deadline on npm preparation.
+    # Preparation remains bounded separately (up to ten minutes).
+    while (( waited < 500 && preparing < 2000 )); do
       [[ "$(<"$status")" == "pending" ]] || exit 1
+      if (( prepared == 0 )); then
+        if [[ -f "$runtime" ]] && jq -e --arg project "$(proj_hash "$proj")" \
+            --arg generation "$generation" --argjson port "$port" '
+              .schema == 1 and .projectHash == $project and .generation == $generation and
+              .listenHost == "127.0.0.1" and .listenPort == $port
+            ' "$runtime" >/dev/null 2>&1; then
+          prepared=1
+          timeout_phase=readiness
+        else
+          sleep 0.3
+          preparing=$((preparing + 1))
+          continue
+        fi
+      fi
       if [[ -f "$ready" ]] && jq -e --arg project "$(proj_hash "$proj")" \
           --arg generation "$generation" --argjson port "$port" '
             .schema == 1 and .projectHash == $project and .generation == $generation and
@@ -20352,8 +20371,13 @@ mcp_watch_host_ready() {
       waited=$((waited + 1))
     done
     rm -f "$response"
-    echo "[mcp] ERROR: host loopback readiness timed out for port $port." >&2
-    echo "[mcp] End state: INCOMPLETE — host readiness verification timed out; ready.json/authenticated healthz not confirmed for generation $generation." >&2
+    if [[ "$timeout_phase" == preparation ]]; then
+      echo "[mcp] ERROR: guest adapter preparation timed out; current runtime.json was not published." >&2
+      echo "[mcp] End state: INCOMPLETE — guest preparation timed out for generation $generation." >&2
+    else
+      echo "[mcp] ERROR: host loopback readiness timed out for port $port." >&2
+      echo "[mcp] End state: INCOMPLETE — host readiness verification timed out; ready.json/authenticated healthz not confirmed for generation $generation." >&2
+    fi
     current_controller="$(
       unset SESS_CONTROLLER
       # shellcheck disable=SC1090

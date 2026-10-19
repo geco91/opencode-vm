@@ -218,6 +218,14 @@ ein frisches Gast-`/tmp` keine manuelle Vorabkopie benötigt.
   (bisher nur echte Takte, aber `CREATION_UNCERTAIN`/Registry-Lock-Probleme).
   Der Mock benötigt eine korrekt konfigurierte native Modell-Kontextgröße;
   `contextWindow:null` aus dem ersten Fixture ist kein Lastnachweis.
+- Der kalte Debian-Quellbuild überschritt das bisher schon während `npm`
+  laufende Host-Bereitschaftsfenster. Der Host wartet jetzt begrenzt auf die
+  vorbereitete Runtime derselben Generation (bis zehn Minuten) und beginnt
+  danach seine bisherigen 150 Sekunden für Listener und authentifizierte
+  Healthprüfung. Veraltete Runtime-/Ready-Dateien gelten nicht als Nachweis.
+  Gezielte beschleunigte Ablaufproben mit Bash 5 und 3.2.57 prüfen langsame
+  Vorbereitung, veraltete Generation, fehlenden Listener, falsche Health-
+  Generation und Abbruch. Der kalte reale Debian-Lauf bleibt separat offen.
   Ein echter macOS-VM-Lauf und LMStudio-Inference bleiben separat offen.
 
 ## Umfang der nativen Brücke
