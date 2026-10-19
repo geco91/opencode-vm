@@ -179,6 +179,9 @@ Projektshare (0600), nicht erst beim sauberen Ende.
   native DB vollständig verwerfen, nur den Snapshot übernehmen, Key in der
   frischen DB wiederfinden und Logout unmittelbar dauerhaft sichern.
   Stopped-Resume ohne gültigen privaten Snapshot bleibt gesperrt.
+- Bash 3.2.57 auf Linux aus offiziellen GNU-Quellen gebaut: vollständige
+  Skriptsyntax und Versionsaufruf in Standard-/V2-Modus PASS. Dies prüft die
+  Shell-Kompatibilität, nicht VZ/virtiofs oder die macOS-VM-Laufzeit.
 - Noch offen: erneuter vollständiger Debian-Lauf des korrigierten Stands,
   native Session-Exposition nach Resume und erfolgreicher Monitor-Dispatch
   (bisher nur echte Takte, aber `CREATION_UNCERTAIN`/Registry-Lock-Probleme).
