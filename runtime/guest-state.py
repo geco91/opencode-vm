@@ -19,6 +19,7 @@ def checked(path):
     if not path.is_absolute() or os.path.normpath(str(path)) != str(path):
         raise ValueError("guest path must be absolute and normalized")
     current = Path(path.anchor)
+    existing = []
     for component in (None, *path.parts[1:]):
         if component is not None:
             current /= component
@@ -32,8 +33,16 @@ def checked(path):
             raise ValueError(f"foreign guest path owner: {current}")
         if info.st_mode & 0o022 and not (info.st_mode & stat.S_ISVTX):
             raise ValueError(f"writable guest path component: {current}")
-        fs = subprocess.run(["stat", "-f", "-c", "%T", str(current)],
-                            capture_output=True, text=True, check=True).stdout.strip()
+        existing.append(current)
+    # GNU stat emits one filesystem type per argument. Keep every component
+    # check, but avoid a process launch for each ancestor: repeated resolver
+    # calls otherwise block the Node services on small nested-KVM hosts.
+    types = subprocess.run(["stat", "-f", "-c", "%T", "--", *map(str, existing)],
+                           capture_output=True, text=True, check=True).stdout.splitlines()
+    if len(types) != len(existing):
+        raise ValueError("could not verify every guest filesystem component")
+    for current, fs in zip(existing, types):
+        fs = fs.strip()
         if fs not in NATIVE:
             raise ValueError(f"not a guest-native filesystem: {current} ({fs}); no host fallback")
     return path

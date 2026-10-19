@@ -224,6 +224,8 @@ export interface SessionGateway {
 export class OpenCodeGateway implements SessionGateway {
   private readonly client: OpenCodeClient;
   private projectId: string | undefined;
+  private productV2 = false;
+  private readonly backendHeaders: Record<string, string>;
   dashboardControl?: DashboardControl;
   private compatibilityPromise: Promise<void> | undefined;
   private readonly submissionLocks = new Set<string>();
@@ -267,19 +269,14 @@ export class OpenCodeGateway implements SessionGateway {
   ) {
     const password = process.env.OPENCODE_SERVER_PASSWORD;
     const username = process.env.OPENCODE_SERVER_USERNAME || "opencode";
+    this.backendHeaders = { "x-ocvm-adapter": "1", ...(password ? { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}` } : {}) };
     this.client =
       client ??
       createOpencodeClient({
         baseUrl: runtime.backendUrl,
         directory: runtime.project,
         throwOnError: true,
-        ...(password
-          ? {
-              headers: {
-                Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`,
-              },
-            }
-          : {}),
+        headers: this.backendHeaders,
       });
   }
 
@@ -738,7 +735,7 @@ export class OpenCodeGateway implements SessionGateway {
     this.collecting.delete(sessionId);
     try {
       const session = await this.requireExposedSession(sessionId);
-      await this.requireIdle(sessionId);
+      await this.requireIdle(sessionId, false);
       let previous: SessionRuntime;
       try {
         previous = await this.sessionRuntime(session);
@@ -762,7 +759,7 @@ export class OpenCodeGateway implements SessionGateway {
           await this.activitySnapshot(sessionId),
           "mcp",
         );
-      await this.requireIdle(sessionId);
+      await this.requireIdle(sessionId, false);
       let writing = false;
       try {
         if (current.agent !== previous.agent) {
@@ -773,7 +770,7 @@ export class OpenCodeGateway implements SessionGateway {
           );
         }
         if (JSON.stringify(current) !== JSON.stringify(previous)) {
-          await this.requireIdle(sessionId);
+          await this.requireIdle(sessionId, false);
           writing = true;
           await this.client.v2.session.switchModel(
             {
@@ -1059,7 +1056,7 @@ export class OpenCodeGateway implements SessionGateway {
     this.collecting.delete(sessionId);
     try {
       await this.requireExposedSession(sessionId);
-      await this.requireIdle(sessionId);
+      await this.requireIdle(sessionId, false);
       // The legacy update endpoint records the archive timestamp; do not use
       // delete, which removes the conversation. A failed readback is uncertain.
       const time = Date.now();
@@ -1125,7 +1122,7 @@ export class OpenCodeGateway implements SessionGateway {
       // External OpenCode clients do not share the adapter's per-session lock,
       // so check exposure and backend idleness immediately before the update.
       await this.requireExposedSession(sessionId);
-      await this.requireIdle(sessionId);
+      await this.requireIdle(sessionId, false);
       try {
         const response = await this.client.session.update(
           {
@@ -1537,6 +1534,10 @@ export class OpenCodeGateway implements SessionGateway {
       };
     }
 
+    if ((await this.nativeInbox(sessionId)).some(item => item.id === messageId)) {
+      return { ...base, message_id: messageId, state: "submitted", admission: this.admissionState(sessionId), pending_input_scope: pending.coverage ?? "session", observed_at: new Date().toISOString(), source: "backend" };
+    }
+
     const { items: messages } = await this.messages(
       sessionId,
       STATUS_HISTORY_LIMIT,
@@ -1842,6 +1843,9 @@ export class OpenCodeGateway implements SessionGateway {
       signal,
       includeArchived,
     );
+    if ((await this.nativeInbox(sessionId)).some(item => item.id === messageId)) {
+      return { session_id: sessionId, submitted_message_id: messageId, state: "submitted", state_reason: "non_terminal_evidence", observed_at: new Date().toISOString(), source: "backend", search_complete: true, order: "newest_first", messages: [] };
+    }
     const user = await this.message(sessionId, messageId, signal);
     if (user.info.role !== "user")
       throw new AdapterError(
@@ -2899,6 +2903,7 @@ export class OpenCodeGateway implements SessionGateway {
       );
     }
     this.projectId = project.data.id;
+    this.productV2 = health.data.version.startsWith("2.");
   }
 
   private async requireExposedSession(
@@ -3405,7 +3410,18 @@ export class OpenCodeGateway implements SessionGateway {
     };
   }
 
-  private async requireIdle(id: string): Promise<void> {
+  private async nativeInbox(id: string): Promise<Array<{ id: string }>> {
+    if (!this.productV2) return [];
+    try {
+      const response = await fetch(`${this.runtime.backendUrl}/api/session/${encodeURIComponent(id)}/inbox`, { headers: this.backendHeaders, signal: this.deadline() });
+      if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) throw new Error("Unsupported inbox response");
+      const value: unknown = await response.json();
+      if (!isRecord(value) || !Array.isArray(value.data) || value.data.length > 1000 || value.data.some(item => !isRecord(item) || typeof item.id !== "string")) throw new Error("Unsupported inbox response");
+      return value.data as Array<{ id: string }>;
+    } catch { throw unavailable("Could not verify OpenCode's admitted prompt queue."); }
+  }
+
+  private async requireIdle(id: string, allowNativeQueue = true): Promise<void> {
     // Receipt uncertainty belongs to the old request, not to the session. Only
     // current backend activity and pending input can prevent a new prompt.
     const [activity, pending] = await Promise.all([
@@ -3413,6 +3429,8 @@ export class OpenCodeGateway implements SessionGateway {
       this.pending(id),
     ]);
     this.assertIdle(activity, pending);
+    if (!allowNativeQueue && (await this.nativeInbox(id)).length)
+      throw new AdapterError("SESSION_BUSY", "The session has admitted queued work; no management change was made.");
   }
 
   private admissionState(id: string): AdmissionState {

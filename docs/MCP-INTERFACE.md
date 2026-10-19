@@ -198,6 +198,8 @@ Input:
 
 `scope_read_files` (since adapter 0.1.56) is a separate optional declaration of 1–16 **exact absolute single files** (normalized, no trailing slash, no globs/wildcards/character classes, no control characters). Every entry must be an existing canonical regular file without symlink escape; directories, missing files and aliases fail `INVALID_ARGUMENT` before creation. It installs only the native `read` rule for that exact file, formed against OpenCode's worktree-relative pattern — never its directory, a neighbour, `edit` or `external_directory`. Explicit `read` denies and tool disables still win. The declaration is derived from the operator field only (never prompt text, extension or reviewer role), forwarded over the managed admission socket, atomically merged/persistent, and echoed back by the loaded plugin. A loaded plugin that cannot confirm the declaration is `BACKEND_INCOMPATIBLE` and admits no work. The gateway rejects an unconfirmed declaration; the plugin independently revalidates canonical regular-file identity before each declared Read and lets matching denies win. See `docs/MANAGED-SESSIONS.md` for the managed-session contract.
 
+When automatic guest worktree placement is configured, the response includes `worktree_path`, the absolute directory of the newly created worktree. Otherwise this field is omitted.
+
 Output:
 
 ```json

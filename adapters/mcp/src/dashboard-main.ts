@@ -29,9 +29,16 @@ async function main() {
     if (!info.isFile() || info.isSymbolicLink() || info.uid !== process.getuid?.() ||
       (file === value.key && (info.mode & 0o077) !== 0)) throw new Error("Unsafe TLS material");
   }
+  if (value.authEnabled) {
+    process.env.OPENCODE_SERVER_USERNAME = value.auth.username;
+    process.env.OPENCODE_SERVER_PASSWORD = value.auth.password;
+  } else {
+    delete process.env.OPENCODE_SERVER_USERNAME;
+    delete process.env.OPENCODE_SERVER_PASSWORD;
+  }
   const authorization = value.authEnabled ? `Basic ${Buffer.from(`${value.auth.username}:${value.auth.password}`).toString("base64")}` : undefined;
   const client = createOpencodeClient({ baseUrl: runtime.backendUrl, directory: runtime.project, throwOnError: true,
-    headers: authorization ? { Authorization: authorization } : {},
+    headers: { "x-ocvm-adapter": "1", ...(authorization ? { Authorization: authorization } : {}) },
     fetch: async (input, init) => {
       const request = new Request(input, init);
       if (request.method !== "GET" || new URL(request.url).origin !== runtime.backendUrl) throw new Error("Read boundary");

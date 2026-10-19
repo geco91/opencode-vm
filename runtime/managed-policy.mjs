@@ -86,7 +86,7 @@ function installCompletionGate() {
   return state;
 }
 
-export default async ({ client, directory, worktree }) => {
+export default async ({ client, directory, worktree, v2 }) => {
   const socket = process.env.OCVM_MANAGED_POLICY_SOCKET;
   if (!socket) return {}; // ordinary standalone OpenCode remains unchanged
   const project = resolve(directory);
@@ -100,7 +100,7 @@ export default async ({ client, directory, worktree }) => {
     saved = JSON.parse(await readFile(store, "utf8"));
     if (saved.schema !== 1 || saved.project !== project || !saved.sessions || typeof saved.sessions !== "object" || Array.isArray(saved.sessions)) throw new Error("MANAGED_STATE_INVALID");
   } catch (error) { if (error.code !== "ENOENT") throw error; }
-  const fetchState = installCompletionGate();
+  const fetchState = v2?.fetchState ?? installCompletionGate();
   // PluginInput uses the legacy SDK (nested path params, old generated schema).
   // Its raw client preserves OpenCode's authenticated/in-process fetch while
   // addressing the verified V1 native endpoints explicitly.
@@ -162,7 +162,7 @@ export default async ({ client, directory, worktree }) => {
     entry.scopeReadFiles = mergeScopeDirs(entry.scopeReadFiles, parent?.scopeReadFiles ?? []);
     entry.scopeReadFiles = mergeScopeDirs(entry.scopeReadFiles, await normalizeReadFiles(scopeReadFiles));
     if (entry.scopeReadFiles.length && (typeof worktree !== "string" || !worktree.startsWith("/"))) throw new Error("MANAGED_READ_CONTEXT_UNKNOWN");
-    const readFiles = entry.scopeReadFiles.map(file => ({ file, pattern: relative(worktree, file) }));
+    const readFiles = entry.scopeReadFiles.map(file => ({ file, pattern: v2?.readPattern?.(file) ?? relative(worktree, file) }));
     const prefix = entry.lastNative.every((r, i) => current[i]?.permission === r.permission && current[i]?.pattern === r.pattern && current[i]?.action === r.action);
     if (!prefix) throw new Error("MANAGED_POLICY_REPLACED_EXTERNALLY");
     // Actual external PATCH appends are preserved separately from our owned
@@ -225,6 +225,7 @@ export default async ({ client, directory, worktree }) => {
     }
     return false;
   };
+  v2?.bind({ isManaged, deniedWrite });
 
   await mkdir(dirname(socket), { recursive: true, mode: 0o700 });
   try {
@@ -239,6 +240,9 @@ export default async ({ client, directory, worktree }) => {
       if (req.method === "GET" && req.url === "/health") {
         res.setHeader("content-type", "application/json");
         res.end(JSON.stringify({ revision: REVISION, project })); return;
+      }
+      if (v2?.tools && req.method === "GET" && req.url === "/tools") {
+        res.setHeader("content-type", "application/json"); res.end(JSON.stringify(await v2.tools())); return;
       }
       if (req.method !== "POST" || req.url !== "/adopt") throw new Error("MANAGED_OPERATION_INVALID");
       let body = "";
@@ -387,7 +391,7 @@ export default async ({ client, directory, worktree }) => {
       if (tool === "read" || tool === "invalid" && args.tool === "read") {
         const entry = saved.sessions[sessionID];
         const file = typeof args.filePath === "string" ? resolve(directory, args.filePath) : null;
-        const pattern = file && typeof worktree === "string" ? relative(worktree, file) : null;
+        const pattern = file && typeof worktree === "string" ? v2?.readPattern?.(file) ?? relative(worktree, file) : null;
         const action = pattern && entry?.lastNative.findLast(rule => matchesGlob("read", rule.permission) && matchesGlob(pattern, rule.pattern))?.action;
         let invalid = false;
         if (file && entry?.scopeReadFiles?.includes(file)) {
